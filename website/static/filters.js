@@ -208,7 +208,7 @@ function renderCollectionPopout() {
   if (!state) return;
 
   collectionPopoutControls.title.textContent =
-    state.scope === "compare" ? "Select curve collections" : "Select collections";
+    state.scope === "compare" ? "Select collection subset" : "Select collections";
   collectionPopoutControls.list.replaceChildren();
 
   for (const columnItems of collectionPopoutColumns(state.items)) {

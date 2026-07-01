@@ -19,9 +19,6 @@ async function readJSONResponse(response) {
 }
 
 async function getJSON(path, params = {}) {
-  if (sessionPaused) {
-    throw new Error("Session paused. Refresh page to continue.");
-  }
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => {
     const values = Array.isArray(value) ? value : [value];
@@ -36,9 +33,6 @@ async function getJSON(path, params = {}) {
 }
 
 async function postJSON(path, payload) {
-  if (sessionPaused) {
-    throw new Error("Session paused. Refresh page to continue.");
-  }
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

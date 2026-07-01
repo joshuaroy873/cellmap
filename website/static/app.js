@@ -11,21 +11,6 @@ function showSelectionPrompt(message) {
   closeCdf();
 }
 
-function pauseSession() {
-  sessionPaused = true;
-  closeCdf();
-  requestNumber += 1;
-  cdfRequestNumber += 1;
-  $("idle-overlay").hidden = false;
-  setStatus("Session paused");
-}
-
-function resetIdleTimer() {
-  if (sessionPaused) return;
-  clearTimeout(idleTimer);
-  idleTimer = setTimeout(pauseSession, IDLE_TIMEOUT_MS);
-}
-
 async function loadMeasurements() {
   if (activeTab !== "map") return;
   if (!controls.metric.value) return;
@@ -74,12 +59,25 @@ async function afterMapCollectionSelectionChanged() {
   await refreshOptionsAndData(true);
 }
 
+async function afterCompareCollectionScopeSelectionChanged() {
+  updateCollectionSummary();
+  populateMeasurementTypes();
+  applyCollectionRange();
+  fittedSelection = "";
+  onCompareCollectionScopeChanged();
+  setStatus(selectedCollections().length ? "Configure compare curves" : "Select collection");
+}
+
 async function applyMapCollectionSelection(collections) {
   const selected = new Set(collections);
   for (const input of collectionInputs()) {
     input.checked = selected.has(input.value);
   }
-  await afterMapCollectionSelectionChanged();
+  if (activeTab === "compare") {
+    await afterCompareCollectionScopeSelectionChanged();
+  } else {
+    await afterMapCollectionSelectionChanged();
+  }
 }
 
 async function initialize() {
@@ -123,10 +121,17 @@ function setActiveTab(tab) {
     }
   } else {
     if (!controls.start.value && !controls.end.value) {
-      applyDatabaseRange();
+      if (selectedCollections().length) applyCollectionRange();
+      else applyDatabaseRange();
     }
-    onCompareDatabaseChanged();
-    setStatus(controls.database.value ? "Configure compare curves" : "Select database");
+    onCompareTabShown();
+    setStatus(
+      controls.database.value
+        ? selectedCollections().length
+          ? "Configure compare curves"
+          : "Select collection"
+        : "Select database"
+    );
   }
 }
 
@@ -146,7 +151,7 @@ controls.database.addEventListener("change", async () => {
     return;
   }
   if (activeTab === "compare") {
-    setStatus("Configure compare curves");
+    setStatus("Select collection");
     return;
   }
   showSelectionPrompt("Select collection");
@@ -160,7 +165,11 @@ controls.collectionOptions.addEventListener("change", async (event) => {
       input.checked = event.target.checked;
     }
   }
-  await afterMapCollectionSelectionChanged();
+  if (activeTab === "compare") {
+    await afterCompareCollectionScopeSelectionChanged();
+  } else {
+    await afterMapCollectionSelectionChanged();
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -217,7 +226,8 @@ $("cdf-modal").addEventListener("close", () => {
 
 $("reset-time").addEventListener("click", () => {
   if (activeTab === "compare") {
-    applyDatabaseRange();
+    if (selectedCollections().length) applyCollectionRange();
+    else applyDatabaseRange();
   } else {
     applyCollectionRange();
     loadMeasurements();
@@ -248,11 +258,6 @@ window.addEventListener("resize", () => {
   if (activeTab === "compare") redrawCompareCharts();
 });
 
-for (const eventName of ["click", "keydown", "pointermove", "touchstart"]) {
-  document.addEventListener(eventName, resetIdleTimer, { passive: true });
-}
-
 document.body.dataset.tab = activeTab;
-resetIdleTimer();
 initializeCollectionPopout();
 initialize();

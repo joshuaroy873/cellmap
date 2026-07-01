@@ -59,9 +59,9 @@ function comparePlotValue(curve) {
 }
 
 function compareCollectionItems() {
-  return databaseCollections().map((collection) => ({
-    value: collection.name,
-    label: collection.name,
+  return selectedCollections().map((collection) => ({
+    value: collection,
+    label: collection,
   }));
 }
 
@@ -72,9 +72,14 @@ function compareSelectedCollections(curve) {
 
 function compareCollectionSummary(curve) {
   const collections = compareSelectedCollections(curve);
+  const availableCount = compareCollectionItems().length;
+  if (!availableCount) return "Select collection";
   if (!collections.length) return "Select collection";
+  if (availableCount > 0 && collections.length === availableCount) {
+    return "All selected collections";
+  }
   if (collections.length === 1) return collections[0];
-  return `${collections.length} collections`;
+  return `${collections.length} of ${availableCount} collections`;
 }
 
 function compareItemValue(item) {
@@ -155,7 +160,7 @@ function makeCompareCollectionPicker(curve) {
   field.className = "collection-field compare-collection-field";
 
   const title = document.createElement("span");
-  title.textContent = "Collection";
+  title.textContent = "Collection (subset)";
 
   const picker = document.createElement("details");
   picker.className = "collection-picker compare-collection-picker";
@@ -412,6 +417,35 @@ function findCompareCurve(id) {
   return compareCurves.find((curve) => curve.id === id);
 }
 
+function comparePromptText() {
+  if (!controls.database.value) return "Select a database first.";
+  if (!selectedCollections().length) {
+    return "Select top-bar collections first.";
+  }
+  return "Add curves, then run compare.";
+}
+
+function showCompareMessage(message) {
+  compareControls.message.hidden = false;
+  compareControls.message.textContent = message;
+}
+
+function pruneCompareCollectionsToScope() {
+  const available = new Set(compareCollectionItems().map((item) => item.value));
+  let changed = false;
+
+  for (const curve of compareCurves) {
+    const current = compareSelectedCollections(curve);
+    const collections = current.filter((collection) => available.has(collection));
+    if (collections.length !== current.length) {
+      curve.collections = collections;
+      curve.options = null;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
 async function applyCompareCollectionSelection(curveId, collections) {
   const curve = findCompareCurve(curveId);
   if (!curve) return;
@@ -564,32 +598,54 @@ async function runCompare() {
   }
 }
 
+function refreshVisibleCompareOptions() {
+  if (controls.database.value && activeTab === "compare") {
+    refreshAllCompareOptions().catch((error) => {
+      showCompareMessage(error.message);
+    });
+  }
+}
+
+function onCompareCollectionScopeChanged() {
+  const pruned = pruneCompareCollectionsToScope();
+  renderCompareEntries();
+  refreshVisibleCompareOptions();
+
+  if (!selectedCollections().length) {
+    showCompareMessage(comparePromptText());
+  } else if (pruned) {
+    showCompareMessage("Collection scope changed. Run compare to update.");
+  } else if (!comparePayload) {
+    showCompareMessage(comparePromptText());
+  }
+}
+
+function onCompareTabShown() {
+  const pruned = pruneCompareCollectionsToScope();
+  renderCompareEntries();
+  refreshVisibleCompareOptions();
+
+  if (!selectedCollections().length) {
+    showCompareMessage(comparePromptText());
+  } else if (pruned) {
+    showCompareMessage("Collection scope changed. Run compare to update.");
+  } else if (!comparePayload) {
+    showCompareMessage(comparePromptText());
+  }
+}
+
 function onCompareDatabaseChanged() {
-  const available = new Set(compareCollectionItems().map((item) => item.value));
   for (const curve of compareCurves) {
-    const collections = compareSelectedCollections(curve).filter((collection) =>
-      available.has(collection)
-    );
-    curve.collections = collections;
-    if (!collections.length) {
-      curve.options = null;
-      resetCompareCurveFields(curve, "collection");
-    }
+    curve.collections = [];
+    curve.options = null;
+    resetCompareCurveFields(curve, "collection");
   }
   comparePayload = null;
   compareControls.charts.replaceChildren();
   compareControls.summary.textContent = "";
-  compareControls.message.hidden = false;
-  compareControls.message.textContent = controls.database.value
-    ? "Add curves, then run compare."
-    : "Select a database first.";
+  showCompareMessage(comparePromptText());
   renderCompareEntries();
-  if (controls.database.value && activeTab === "compare") {
-    refreshAllCompareOptions().catch((error) => {
-      compareControls.message.hidden = false;
-      compareControls.message.textContent = error.message;
-    });
-  }
+  refreshVisibleCompareOptions();
 }
 
 function initializeCompare() {

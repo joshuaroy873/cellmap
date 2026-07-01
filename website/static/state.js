@@ -55,8 +55,6 @@ const measurementLabels = {
   pusch: "PUSCH",
 };
 
-const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
-
 let catalog = null;
 let options = null;
 let markerLayer;
@@ -64,8 +62,6 @@ let fittedSelection = "";
 let requestNumber = 0;
 let cdfRequestNumber = 0;
 let cdfPayload = null;
-let idleTimer = null;
-let sessionPaused = false;
 let activeTab = "map";
 let compareCurves = [];
 let compareCurveNumber = 0;

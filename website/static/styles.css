@@ -32,36 +32,6 @@ body {
   overflow: hidden;
 }
 
-.idle-overlay {
-  position: fixed;
-  z-index: 3000;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(244, 247, 249, 0.72);
-  backdrop-filter: blur(3px);
-}
-
-.idle-message {
-  display: grid;
-  gap: 0.35rem;
-  min-width: min(22rem, calc(100vw - 2rem));
-  padding: 1.3rem 1.5rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
-  box-shadow: var(--shadow);
-  text-align: center;
-}
-
-.idle-message strong {
-  font-size: 1.15rem;
-}
-
-.idle-message span {
-  color: var(--muted);
-}
-
 button,
 input,
 select,
@@ -246,10 +216,6 @@ label {
   background: rgba(255, 255, 255, 0.97);
 }
 
-body[data-tab="compare"] .topbar > .collection-field {
-  display: none;
-}
-
 .tabs {
   position: relative;
   z-index: 900;
@@ -427,11 +393,18 @@ body[data-tab="compare"] .topbar > .collection-field {
 }
 
 .compare-collection-field .collection-options {
-  position: static;
-  width: 100%;
+  position: absolute;
+  z-index: 1300;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  width: max(100%, 320px);
   max-height: 240px;
-  margin-top: 0.25rem;
-  box-shadow: none;
+  margin-top: 0;
+  box-shadow: var(--shadow);
+}
+
+.compare-collection-picker[open] {
+  z-index: 1300;
 }
 
 .curve-copy,
@@ -924,14 +897,14 @@ h2 {
 .collection-popout-item {
   min-height: 2rem;
   padding: 0.4rem 0.55rem;
-  overflow: hidden;
   border-color: transparent;
   background: #fff;
   font-size: 0.78rem;
   font-weight: 600;
+  line-height: 1.25;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .collection-popout-item:hover {
