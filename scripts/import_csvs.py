@@ -8,270 +8,30 @@ import hashlib
 import json
 import os
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
 import duckdb
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from cellmap_schema import (  # noqa: E402
+    COMMON_COLUMNS,
+    DERIVED_COLUMNS,
+    FILE_TYPES,
+    MEASUREMENT_SCHEMAS,
+    ROW_FILTERS,
+    SCHEMA_VERSION,
+)
 from init_database import DB_PATH, ROOT, initialize
 
 
 DATA = ROOT / "data"
 OUTPUT = DATA / "_processed/measurements"
-SCHEMA_VERSION = 2
-
-# Every field below is part of the canonical hash. Unlisted QualiPoc columns
-# are intentionally ignored, so adding an unrelated export column changes
-# neither the stored data nor its hash.
-COMMON = [
-    ("measured_at", "TIMESTAMP", ["time", "timestamp"]),
-    ("database_name", "VARCHAR", ["database", "database_name"]),
-    ("collection_name", "VARCHAR", ["collection", "collection_name"]),
-    ("latitude", "DOUBLE", ["latitude"]),
-    ("longitude", "DOUBLE", ["longitude"]),
-    ("operator_name", "VARCHAR", ["operator", "operator_name"]),
-    ("model", "VARCHAR", ["model"]),
-]
-
-SCHEMAS = {
-    "lte_radio": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_lte", "pci"]),
-        ("ssb_index", "BIGINT", []),
-        ("dl_channel_number", "BIGINT", ["dl_earfcn"]),
-        ("ul_channel_number", "BIGINT", ["ul_earfcn"]),
-        ("dl_bandwidth_mhz", "DOUBLE", ["dl_bandwidth"]),
-        (
-            "dl_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["dl_bandwidth_aggregated"],
-        ),
-        ("ul_bandwidth_mhz", "DOUBLE", ["ul_bandwidth"]),
-        (
-            "ul_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["ul_bandwidth_aggregated"],
-        ),
-        ("dl_scs_khz", "BIGINT", []),
-        ("cell_type", "VARCHAR", ["cell_type"]),
-        ("rsrp_dbm", "DOUBLE", ["rsrp"]),
-        ("rsrq_db", "DOUBLE", ["rsrq"]),
-        ("rssi_dbm", "DOUBLE", ["rssi_lte", "rssi"]),
-        ("sinr_db", "DOUBLE", ["sinr"]),
-    ],
-    "lte_radio_neighbor": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_lte", "pci"]),
-        ("ssb_index", "BIGINT", []),
-        ("dl_channel_number", "BIGINT", ["dl_earfcn"]),
-        ("ul_channel_number", "BIGINT", ["ul_earfcn"]),
-        ("dl_scs_khz", "BIGINT", []),
-        ("is_serving_beam", "BOOLEAN", []),
-        ("rsrp_dbm", "DOUBLE", ["rsrp"]),
-        ("rsrq_db", "DOUBLE", ["rsrq"]),
-        ("rssi_dbm", "DOUBLE", ["rssi"]),
-        ("sinr_db", "DOUBLE", []),
-    ],
-    "lte_pdsch": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_lte", "pci"]),
-        ("ssb_index", "BIGINT", []),
-        ("dl_channel_number", "BIGINT", ["dl_earfcn"]),
-        ("dl_bandwidth_mhz", "DOUBLE", ["dl_bandwidth"]),
-        (
-            "dl_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["dl_bandwidth_aggregated"],
-        ),
-        ("dl_scs_khz", "BIGINT", []),
-        ("cell_type", "VARCHAR", ["cell_type"]),
-        ("throughput_mbps", "DOUBLE", ["lte_net_pdsch_throughput"]),
-        ("mcs", "DOUBLE", ["mcs"]),
-        ("avg_pdsch_layers", "DOUBLE", ["avg_pdsch_layers"]),
-        ("pdsch_rbs", "DOUBLE", ["pdsch_rbs"]),
-        ("bler", "DOUBLE", ["bler"]),
-        ("modulation", "VARCHAR", ["pdsch_modulation"]),
-    ],
-    "lte_pusch": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_lte", "pci"]),
-        ("ssb_index", "BIGINT", []),
-        ("ul_channel_number", "BIGINT", ["ul_earfcn"]),
-        ("ul_bandwidth_mhz", "DOUBLE", ["ul_bandwidth"]),
-        (
-            "ul_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["ul_bandwidth_aggregated"],
-        ),
-        ("ul_scs_khz", "BIGINT", []),
-        ("cell_type", "VARCHAR", ["cell_type"]),
-        ("throughput_mbps", "DOUBLE", ["lte_net_pusch_throughput"]),
-        ("mcs", "DOUBLE", ["mcs"]),
-        ("avg_pusch_layers", "DOUBLE", ["avg_pusch_layers"]),
-        ("pusch_rbs", "DOUBLE", ["pusch_rbs"]),
-        ("modulation", "VARCHAR", ["pusch_modulation"]),
-    ],
-    "nr_radio": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_5g_nr", "pci_nr", "pci"]),
-        ("ssb_index", "BIGINT", ["ssb_index"]),
-        ("dl_channel_number", "BIGINT", ["dl_nrarfcn", "dl_nr_arfcn"]),
-        ("ul_channel_number", "BIGINT", ["ul_nrarfcn", "ul_nr_arfcn"]),
-        ("dl_bandwidth_mhz", "DOUBLE", ["dl_bandwidth"]),
-        (
-            "dl_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["dl_bandwidth_aggregated"],
-        ),
-        ("ul_bandwidth_mhz", "DOUBLE", ["ul_bandwidth"]),
-        (
-            "ul_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["ul_bandwidth_aggregated"],
-        ),
-        ("dl_scs_khz", "BIGINT", ["dl_subcarrier_spacing"]),
-        ("cell_type", "VARCHAR", ["cell_type"]),
-        ("rsrp_dbm", "DOUBLE", ["ssrsrp", "ss_rsrp"]),
-        ("rsrq_db", "DOUBLE", ["ssrsrq", "ss_rsrq"]),
-        ("rssi_dbm", "DOUBLE", []),
-        ("sinr_db", "DOUBLE", ["sssinr", "ss_sinr"]),
-    ],
-    "nr_radio_neighbor": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_5g_nr", "pci_nr", "pci"]),
-        ("ssb_index", "BIGINT", ["ssb_index"]),
-        ("dl_channel_number", "BIGINT", ["dl_nrarfcn", "dl_nr_arfcn"]),
-        ("ul_channel_number", "BIGINT", ["ul_nrarfcn", "ul_nr_arfcn"]),
-        ("dl_scs_khz", "BIGINT", ["dl_subcarrier_spacing"]),
-        ("is_serving_beam", "BOOLEAN", ["is_serving_beam"]),
-        ("rsrp_dbm", "DOUBLE", ["ssrsrp", "ss_rsrp"]),
-        ("rsrq_db", "DOUBLE", ["ssrsrq", "ss_rsrq"]),
-        ("rssi_dbm", "DOUBLE", []),
-        ("sinr_db", "DOUBLE", ["sssinr", "ss_sinr"]),
-    ],
-    "nr_pdsch": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_5g_nr", "pci_nr", "pci"]),
-        ("ssb_index", "BIGINT", ["ssb_index"]),
-        ("dl_channel_number", "BIGINT", ["dl_nrarfcn", "dl_nr_arfcn"]),
-        ("dl_bandwidth_mhz", "DOUBLE", ["dl_bandwidth"]),
-        (
-            "dl_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["dl_bandwidth_aggregated"],
-        ),
-        ("dl_scs_khz", "BIGINT", ["pdsch_scs"]),
-        ("cell_type", "VARCHAR", ["cell_type"]),
-        ("throughput_mbps", "DOUBLE", ["5g_nr_net_pdsch_throughput"]),
-        ("mcs", "DOUBLE", ["mcs"]),
-        ("avg_pdsch_layers", "DOUBLE", ["avg_pdsch_layers"]),
-        ("pdsch_rbs", "DOUBLE", ["pdsch_rbs"]),
-        ("bler", "DOUBLE", ["pdsch_bler"]),
-        ("modulation", "VARCHAR", ["pdsch_modulation"]),
-    ],
-    "nr_pusch": [
-        ("technology", "VARCHAR", []),
-        ("rat", "VARCHAR", ["ran_configuration"]),
-        ("band_number", "BIGINT", ["band_number", "band"]),
-        ("pci", "BIGINT", ["pci_5g_nr", "pci_nr", "pci"]),
-        ("ssb_index", "BIGINT", ["ssb_index"]),
-        ("ul_channel_number", "BIGINT", ["ul_nrarfcn", "ul_nr_arfcn"]),
-        ("ul_bandwidth_mhz", "DOUBLE", ["ul_bandwidth"]),
-        (
-            "ul_bandwidth_aggregated_mhz",
-            "DOUBLE",
-            ["ul_bandwidth_aggregated"],
-        ),
-        ("ul_scs_khz", "BIGINT", ["pusch_scs"]),
-        ("cell_type", "VARCHAR", ["cell_type"]),
-        ("throughput_mbps", "DOUBLE", ["5g_nr_net_pusch_throughput"]),
-        ("mcs", "DOUBLE", ["mcs"]),
-        ("avg_pusch_layers", "DOUBLE", ["avg_pusch_layers"]),
-        ("pusch_rbs", "DOUBLE", ["pusch_rbs"]),
-        ("modulation", "VARCHAR", ["pusch_modulation"]),
-    ],
-}
-
-DERIVED = {
-    "lte_radio": {
-        "technology": "'LTE'",
-        "ssb_index": "NULL",
-        "dl_scs_khz": "15",
-    },
-    "lte_radio_neighbor": {
-        "technology": "'LTE'",
-        "ssb_index": "NULL",
-        "dl_scs_khz": "15",
-        "is_serving_beam": "NULL",
-        "sinr_db": "NULL",
-    },
-    "lte_pdsch": {
-        "technology": "'LTE'",
-        "ssb_index": "NULL",
-        "dl_scs_khz": "15",
-    },
-    "lte_pusch": {
-        "technology": "'LTE'",
-        "ssb_index": "NULL",
-        "ul_scs_khz": "15",
-    },
-    "nr_radio": {"technology": "'NR'", "rssi_dbm": "NULL"},
-    "nr_radio_neighbor": {"technology": "'NR'", "rssi_dbm": "NULL"},
-    "nr_pdsch": {"technology": "'NR'"},
-    "nr_pusch": {"technology": "'NR'"},
-}
-
-ROW_FILTERS = {
-    "lte_pdsch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
-        (["direction"], "Downlink"),
-        (["test_status"], "Completed"),
-    ],
-    "nr_pdsch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
-        (["direction"], "Downlink"),
-        (["test_status"], "Completed"),
-    ],
-    "lte_pusch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
-        (["direction"], "Uplink"),
-        (["test_status"], "Completed"),
-    ],
-    "nr_pusch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
-        (["direction"], "Uplink"),
-        (["test_status"], "Completed"),
-    ],
-}
-
-FILE_TYPES = {
-    "lte_radio": "lte_radio",
-    "lte_radio_neig": "lte_radio_neighbor",
-    "lte_radio_neighbor": "lte_radio_neighbor",
-    "lte_pdsch": "lte_pdsch",
-    "lte_pusch": "lte_pusch",
-    "nr_radio": "nr_radio",
-    "nr_radio_neig": "nr_radio_neighbor",
-    "nr_radio_neighbor": "nr_radio_neighbor",
-    "nr_pdsch": "nr_pdsch",
-    "nr_pusch": "nr_pusch",
-}
-
 
 def is_temp_path(path: Path) -> bool:
     return "_temp" in path.parts
@@ -327,8 +87,8 @@ def canonical_select(con: duckdb.DuckDBPyConnection, path: Path, kind: str) -> s
     expressions = []
     filters = []
     missing = []
-    for name, data_type, aliases in COMMON + SCHEMAS[kind]:
-        derived = DERIVED.get(kind, {}).get(name)
+    for name, data_type, aliases in COMMON_COLUMNS + MEASUREMENT_SCHEMAS[kind]:
+        derived = DERIVED_COLUMNS.get(kind, {}).get(name)
         if derived is not None:
             expressions.append(
                 f"cast({derived} AS {data_type}) AS {sql_name(name)}"
@@ -423,26 +183,26 @@ def upsert_partition(
     )
 
 
-def import_file(
-    con: duckdb.DuckDBPyConnection, path: Path, kind: str, force: bool
-) -> None:
-    exported_at = export_time(path)
-    raw_hash = file_hash(path)
-    if not force and con.execute(
-        """
-        SELECT 1 FROM processed_files
-        WHERE file_hash = ? AND measurement_type = ? AND schema_version = ?
-        """,
-        [raw_hash, kind, SCHEMA_VERSION],
-    ).fetchone():
-        print(
-            f"SKIP file unchanged [{path.parent.name}]: "
-            f"{path.relative_to(ROOT)}"
-        )
-        return
+def file_already_processed(
+    con: duckdb.DuckDBPyConnection, raw_hash: str, kind: str
+) -> bool:
+    return bool(
+        con.execute(
+            """
+            SELECT 1 FROM processed_files
+            WHERE file_hash = ? AND measurement_type = ? AND schema_version = ?
+            """,
+            [raw_hash, kind, SCHEMA_VERSION],
+        ).fetchone()
+    )
 
+
+def load_staged_csv(con: duckdb.DuckDBPyConnection, path: Path, kind: str) -> None:
     select = canonical_select(con, path, kind)
     con.execute(f"CREATE OR REPLACE TEMP TABLE staged AS {select}")
+
+
+def validate_staged_rows(con: duckdb.DuckDBPyConnection, path: Path) -> None:
     invalid = con.execute("""
         SELECT count(*) FROM staged
         WHERE measured_at IS NULL
@@ -452,9 +212,16 @@ def import_file(
     if invalid:
         raise ValueError(f"{path}: {invalid} rows lack time, database, or collection")
 
-    columns = [row[1] for row in con.execute("PRAGMA table_info('staged')").fetchall()]
+
+def staged_columns(con: duckdb.DuckDBPyConnection) -> list[str]:
+    return [row[1] for row in con.execute("PRAGMA table_info('staged')").fetchall()]
+
+
+def partition_summaries(
+    con: duckdb.DuckDBPyConnection, columns: list[str]
+) -> list[tuple[object, ...]]:
     fields = ", ".join(f"{sql_name(name)} := {sql_name(name)}" for name in columns)
-    rows = con.execute(f"""
+    return con.execute(f"""
         WITH hashed AS (
             SELECT
                 *,
@@ -476,85 +243,64 @@ def import_file(
         ORDER BY database_name, collection_name
     """).fetchall()
 
-    for row in rows:
-        database, collection, count, start, end, *hash_parts = row
-        fingerprint = partition_fingerprint(
-            kind, columns, (count, start, end, *hash_parts)
+
+def current_partition(
+    con: duckdb.DuckDBPyConnection,
+    database: str,
+    collection: str,
+    kind: str,
+) -> tuple[object, ...] | None:
+    return con.execute(
+        """
+        SELECT content_hash, exported_at, parquet_path, schema_version
+        FROM measurement_partitions
+        WHERE database_name = ?
+          AND collection_name = ?
+          AND measurement_type = ?
+        """,
+        [database, collection, kind],
+    ).fetchone()
+
+
+def partition_path(database: str, collection: str, kind: str) -> Path:
+    return (
+        OUTPUT
+        / kind
+        / f"database={quote(database, safe='')}"
+        / f"collection={quote(collection, safe='')}"
+        / "data.parquet"
+    )
+
+
+def write_partition(
+    con: duckdb.DuckDBPyConnection,
+    database: str,
+    collection: str,
+    target: Path,
+) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name("data.tmp.parquet")
+    temporary.unlink(missing_ok=True)
+    con.execute(f"""
+        COPY (
+            SELECT * FROM staged
+            WHERE database_name = {sql_string(database)}
+              AND collection_name = {sql_string(collection)}
+            ORDER BY measured_at
         )
-        current = con.execute(
-            """
-            SELECT content_hash, exported_at, parquet_path, schema_version
-            FROM measurement_partitions
-            WHERE database_name = ?
-              AND collection_name = ?
-              AND measurement_type = ?
-            """,
-            [database, collection, kind],
-        ).fetchone()
+        TO {sql_string(temporary)}
+        (FORMAT PARQUET, COMPRESSION ZSTD)
+    """)
+    os.replace(temporary, target)
 
-        if current and current[1] and exported_at < current[1]:
-            print(
-                f"SKIP older [{path.parent.name}]: "
-                f"{database} / {collection} / {kind}"
-            )
-            continue
 
-        target = (
-            OUTPUT
-            / kind
-            / f"database={quote(database, safe='')}"
-            / f"collection={quote(collection, safe='')}"
-            / "data.parquet"
-        )
-        relative_target = target.relative_to(ROOT).as_posix()
-        unchanged = (
-            not force
-            and current
-            and current[0] == fingerprint
-            and current[3] == SCHEMA_VERSION
-        )
-
-        if unchanged:
-            print(
-                f"SKIP partition unchanged [{path.parent.name}]: "
-                f"{database} / {collection} / {kind}"
-            )
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            temporary = target.with_name("data.tmp.parquet")
-            temporary.unlink(missing_ok=True)
-            con.execute(f"""
-                COPY (
-                    SELECT * FROM staged
-                    WHERE database_name = {sql_string(database)}
-                      AND collection_name = {sql_string(collection)}
-                    ORDER BY measured_at
-                )
-                TO {sql_string(temporary)}
-                (FORMAT PARQUET, COMPRESSION ZSTD)
-            """)
-            os.replace(temporary, target)
-            action = "ADD" if current is None else "REPLACE"
-            print(f"{action}: {database} / {collection} / {kind} ({count:,} rows)")
-
-        upsert_partition(
-            con,
-            (
-                database,
-                collection,
-                kind,
-                SCHEMA_VERSION,
-                exported_at.date(),
-                exported_at,
-                count,
-                start,
-                end,
-                fingerprint,
-                raw_hash,
-                relative_target if not unchanged else current[2],
-            ),
-        )
-
+def record_processed_file(
+    con: duckdb.DuckDBPyConnection,
+    path: Path,
+    kind: str,
+    raw_hash: str,
+    exported_at: datetime,
+) -> None:
     con.execute(
         """
         INSERT OR REPLACE INTO processed_files (
@@ -576,6 +322,89 @@ def import_file(
             exported_at.date(),
         ],
     )
+
+
+def process_partition(
+    con: duckdb.DuckDBPyConnection,
+    path: Path,
+    kind: str,
+    force: bool,
+    raw_hash: str,
+    exported_at: datetime,
+    columns: list[str],
+    summary: tuple[object, ...],
+) -> None:
+    database, collection, count, start, end, *hash_parts = summary
+    fingerprint = partition_fingerprint(
+        kind, columns, (count, start, end, *hash_parts)
+    )
+    current = current_partition(con, database, collection, kind)
+
+    if current and current[1] and exported_at < current[1]:
+        print(
+            f"SKIP older [{path.parent.name}]: "
+            f"{database} / {collection} / {kind}"
+        )
+        return
+
+    target = partition_path(database, collection, kind)
+    relative_target = target.relative_to(ROOT).as_posix()
+    unchanged = (
+        not force
+        and current
+        and current[0] == fingerprint
+        and current[3] == SCHEMA_VERSION
+    )
+
+    if unchanged:
+        print(
+            f"SKIP partition unchanged [{path.parent.name}]: "
+            f"{database} / {collection} / {kind}"
+        )
+    else:
+        write_partition(con, database, collection, target)
+        action = "ADD" if current is None else "REPLACE"
+        print(f"{action}: {database} / {collection} / {kind} ({count:,} rows)")
+
+    upsert_partition(
+        con,
+        (
+            database,
+            collection,
+            kind,
+            SCHEMA_VERSION,
+            exported_at.date(),
+            exported_at,
+            count,
+            start,
+            end,
+            fingerprint,
+            raw_hash,
+            relative_target if not unchanged else current[2],
+        ),
+    )
+
+
+def import_file(
+    con: duckdb.DuckDBPyConnection, path: Path, kind: str, force: bool
+) -> None:
+    exported_at = export_time(path)
+    raw_hash = file_hash(path)
+    if not force and file_already_processed(con, raw_hash, kind):
+        print(
+            f"SKIP file unchanged [{path.parent.name}]: "
+            f"{path.relative_to(ROOT)}"
+        )
+        return
+
+    load_staged_csv(con, path, kind)
+    validate_staged_rows(con, path)
+    columns = staged_columns(con)
+    for summary in partition_summaries(con, columns):
+        process_partition(
+            con, path, kind, force, raw_hash, exported_at, columns, summary
+        )
+    record_processed_file(con, path, kind, raw_hash, exported_at)
 
 
 def main() -> int:

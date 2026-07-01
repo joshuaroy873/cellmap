@@ -11,7 +11,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from import_csvs import FILE_TYPES, ROOT, file_hash, token
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from cellmap_schema import FILE_TYPES  # noqa: E402
+from import_csvs import ROOT, file_hash, token  # noqa: E402
 
 
 DATA = ROOT / "data"

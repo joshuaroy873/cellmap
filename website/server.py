@@ -7,6 +7,7 @@ import argparse
 import gzip
 import json
 import mimetypes
+import sys
 from datetime import date, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,81 +17,22 @@ import duckdb
 
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from cellmap_schema import (  # noqa: E402
+    CATEGORY_TYPES,
+    DETAIL_FIELDS,
+    METRICS,
+    NULL_FILTER_VALUE,
+)
+
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
 MEASUREMENTS = ROOT / "data/_processed/measurements"
 MAX_POINTS = 6_000
 MAX_SERIES_POINTS = 500
 MAX_CDF_POINTS = 400
-NULL_FILTER_VALUE = "__null__"
-
-CATEGORY_TYPES = {
-    "radio": {"LTE": "lte_radio", "NR": "nr_radio"},
-    "neighbor": {"LTE": "lte_radio_neighbor", "NR": "nr_radio_neighbor"},
-    "pdsch": {"LTE": "lte_pdsch", "NR": "nr_pdsch"},
-    "pusch": {"LTE": "lte_pusch", "NR": "nr_pusch"},
-}
-
-METRICS = {
-    "radio": {
-        "rsrp_dbm": ("RSRP / SS-RSRP", "dBm"),
-        "rsrq_db": ("RSRQ / SS-RSRQ", "dB"),
-        "rssi_dbm": ("RSSI", "dBm"),
-        "sinr_db": ("SINR / SS-SINR", "dB"),
-    },
-    "neighbor": {
-        "rsrp_dbm": ("RSRP / SS-RSRP", "dBm"),
-        "rsrq_db": ("RSRQ / SS-RSRQ", "dB"),
-        "rssi_dbm": ("RSSI", "dBm"),
-        "sinr_db": ("SS-SINR", "dB"),
-    },
-    "pdsch": {
-        "throughput_mbps": ("Net PDSCH throughput", "Mbps"),
-        "mcs": ("MCS", ""),
-        "avg_pdsch_layers": ("Average PDSCH layers", ""),
-        "pdsch_rbs": ("PDSCH RBs", ""),
-        "bler": ("PDSCH BLER", ""),
-    },
-    "pusch": {
-        "throughput_mbps": ("Net PUSCH throughput", "Mbps"),
-        "mcs": ("MCS", ""),
-        "avg_pusch_layers": ("Average PUSCH layers", ""),
-        "pusch_rbs": ("PUSCH RBs", ""),
-    },
-}
-
-DETAIL_FIELDS = {
-    "radio": [
-        "dl_channel_number",
-        "ul_channel_number",
-        "dl_bandwidth_mhz",
-        "ul_bandwidth_mhz",
-        "dl_scs_khz",
-        "cell_type",
-    ],
-    "neighbor": [
-        "dl_channel_number",
-        "ul_channel_number",
-        "dl_scs_khz",
-        "is_serving_beam",
-    ],
-    "pdsch": [
-        "dl_channel_number",
-        "dl_bandwidth_mhz",
-        "dl_bandwidth_aggregated_mhz",
-        "dl_scs_khz",
-        "cell_type",
-        "modulation",
-    ],
-    "pusch": [
-        "ul_channel_number",
-        "ul_bandwidth_mhz",
-        "ul_bandwidth_aggregated_mhz",
-        "ul_scs_khz",
-        "cell_type",
-        "modulation",
-    ],
-}
 
 
 def json_default(value: object) -> object:
@@ -224,6 +166,79 @@ def parquet_source(paths: list[Path]) -> str:
     )
 
 
+def collection_filter(database: str, collections: list[str]) -> tuple[str, list[object]]:
+    placeholders = ", ".join("?" for _ in collections)
+    return (
+        f"database_name = ? AND collection_name IN ({placeholders})",
+        [database, *collections],
+    )
+
+
+def distinct_values(
+    con: duckdb.DuckDBPyConnection,
+    source: str,
+    column: str,
+    where: str,
+    params: list[object],
+) -> list[object]:
+    (values,) = con.execute(f"""
+        SELECT list_sort(list_distinct(list({column})
+            FILTER (WHERE {column} IS NOT NULL)))
+        FROM {source}
+        WHERE {where}
+    """, params).fetchone()
+    return values or []
+
+
+def counted_values(
+    con: duckdb.DuckDBPyConnection,
+    source: str,
+    column: str,
+    where: str,
+    params: list[object],
+    include_null: bool = False,
+) -> list[tuple[object, int]]:
+    null_filter = "" if include_null else f"AND {column} IS NOT NULL"
+    return con.execute(f"""
+        SELECT {column}, count(*)
+        FROM {source}
+        WHERE {where}
+          {null_filter}
+        GROUP BY {column}
+        ORDER BY {column} NULLS LAST
+    """, params).fetchall()
+
+
+def counted_bands(
+    con: duckdb.DuckDBPyConnection,
+    source: str,
+    where: str,
+    params: list[object],
+) -> list[tuple[str, int, int]]:
+    return con.execute(f"""
+        SELECT technology, band_number, count(*)
+        FROM {source}
+        WHERE {where}
+          AND band_number IS NOT NULL
+        GROUP BY technology, band_number
+        ORDER BY technology, band_number
+    """, params).fetchall()
+
+
+def metric_counts(
+    con: duckdb.DuckDBPyConnection,
+    source: str,
+    metric_names: list[str],
+    where: str,
+    params: list[object],
+) -> tuple[object, ...]:
+    return con.execute(f"""
+        SELECT {", ".join(f"count({name})" for name in metric_names)}
+        FROM {source}
+        WHERE {where}
+    """, params).fetchone()
+
+
 def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
     database = query_value(query, "database")
     collections = query_values(query, "collection")
@@ -236,31 +251,19 @@ def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
 
     with open_catalog() as con:
         source = parquet_source(parquet_paths(con, database, collections, kinds))
-        placeholders = ", ".join("?" for _ in collections)
-        base_where = (
-            f"database_name = ? AND collection_name IN ({placeholders})"
-        )
-        base_params = [database, *collections]
+        base_where, base_params = collection_filter(database, collections)
 
-        (technologies,) = con.execute(f"""
-            SELECT list_sort(list_distinct(list(technology)
-                FILTER (WHERE technology IS NOT NULL)))
-            FROM {source}
-            WHERE {base_where}
-        """, base_params).fetchone()
-        technologies = technologies or []
+        technologies = distinct_values(
+            con, source, "technology", base_where, base_params
+        )
         technology = valid_option(query_value(query, "technology"), technologies)
 
         operator_where, operator_params = option_filter(
             base_where, base_params, [("technology", technology)]
         )
-        (operators,) = con.execute(f"""
-            SELECT list_sort(list_distinct(list(operator_name)
-                FILTER (WHERE operator_name IS NOT NULL)))
-            FROM {source}
-            WHERE {operator_where}
-        """, operator_params).fetchone()
-        operators = operators or []
+        operators = distinct_values(
+            con, source, "operator_name", operator_where, operator_params
+        )
         operator = valid_option(query_value(query, "operator"), operators)
 
         band_where, band_params = option_filter(
@@ -268,14 +271,7 @@ def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
             base_params,
             [("technology", technology), ("operator", operator)],
         )
-        bands = con.execute(f"""
-            SELECT technology, band_number, count(*)
-            FROM {source}
-            WHERE {band_where}
-              AND band_number IS NOT NULL
-            GROUP BY technology, band_number
-            ORDER BY technology, band_number
-        """, band_params).fetchall()
+        bands = counted_bands(con, source, band_where, band_params)
         band = valid_option(
             query_value(query, "band"),
             [f"{band_technology}:{band}" for band_technology, band, _ in bands],
@@ -286,14 +282,7 @@ def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
             base_params,
             [("technology", technology), ("operator", operator), ("band", band)],
         )
-        pcis = con.execute(f"""
-            SELECT pci, count(*)
-            FROM {source}
-            WHERE {pci_where}
-              AND pci IS NOT NULL
-            GROUP BY pci
-            ORDER BY pci
-        """, pci_params).fetchall()
+        pcis = counted_values(con, source, "pci", pci_where, pci_params)
         pci = valid_option(query_value(query, "pci"), [pci for pci, _ in pcis])
 
         ssb_where, ssb_params = option_filter(
@@ -306,13 +295,9 @@ def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
                 ("pci", pci),
             ],
         )
-        ssb_indexes = con.execute(f"""
-            SELECT ssb_index, count(*)
-            FROM {source}
-            WHERE {ssb_where}
-            GROUP BY ssb_index
-            ORDER BY ssb_index NULLS LAST
-        """, ssb_params).fetchall()
+        ssb_indexes = counted_values(
+            con, source, "ssb_index", ssb_where, ssb_params, include_null=True
+        )
         ssb = valid_option(query_value(query, "ssb"), [ssb for ssb, _ in ssb_indexes])
 
         metric_where, metric_params = option_filter(
@@ -326,15 +311,11 @@ def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
                 ("ssb", ssb),
             ],
         )
-        metric_counts = con.execute(f"""
-            SELECT {", ".join(f"count({name})" for name in metric_names)}
-            FROM {source}
-            WHERE {metric_where}
-        """, metric_params).fetchone()
+        counts = metric_counts(con, source, metric_names, metric_where, metric_params)
 
     metrics = [
         {"value": name, "label": METRICS[category][name][0], "unit": METRICS[category][name][1]}
-        for name, count in zip(metric_names, metric_counts)
+        for name, count in zip(metric_names, counts)
         if count
     ]
     return {

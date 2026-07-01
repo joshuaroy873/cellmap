@@ -134,6 +134,9 @@ newer export are retained. Rows are not deduplicated by timestamp.
 
 ## Canonical Columns
 
+The canonical schema is defined in `cellmap_schema.py` and shared by the
+importer and website server.
+
 These columns are present in every processed measurement type:
 
 ```text

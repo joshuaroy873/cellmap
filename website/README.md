@@ -34,11 +34,18 @@ python website/server.py --host 0.0.0.0 --port 8000
 website/server.py          HTTP API and static file server
 website/static/index.html  page structure
 website/static/styles.css  layout and styling
-website/static/app.js      filters, map, charts, CDF, and UI state
+website/static/state.js    shared UI state and DOM handles
+website/static/api.js      JSON request helper
+website/static/filters.js  collection and filter controls
+website/static/map_view.js Leaflet map and selected-point details
+website/static/charts.js   summary, time-series, and CDF drawing
+website/static/app.js      page initialization and event wiring
 ```
 
 Leaflet 1.9.4 is vendored in `website/static/vendor/leaflet`.
 Map tiles use CARTO Positron.
+The current map page is isolated in `map_view.js`; future tabs can add their
+own view files without changing the API helper or filter code.
 
 ## API
 
