@@ -48,6 +48,49 @@ function databaseCollections() {
   return currentDatabase()?.collections || [];
 }
 
+function collectionItemLabel(item) {
+  return typeof item === "object" ? item.label : String(item);
+}
+
+function collectionItemValue(item) {
+  return typeof item === "object" ? item.value : String(item);
+}
+
+function sortCollectionItems(items) {
+  return [...items].sort((left, right) =>
+    collectionItemLabel(left).localeCompare(
+      collectionItemLabel(right),
+      undefined,
+      { numeric: true, sensitivity: "base" }
+    )
+  );
+}
+
+function mapCollectionItems() {
+  return databaseCollections().map((collection) => ({
+    value: collection.name,
+    label: collection.name,
+  }));
+}
+
+function makeCollectionPopoutButton(scope, curveId = "") {
+  const button = document.createElement("button");
+  button.className = "collection-popout-button";
+  button.type = "button";
+  button.dataset.collectionPopout = "";
+  button.dataset.collectionScope = scope;
+  if (curveId) button.dataset.curveId = curveId;
+  button.textContent = "Pop out";
+  return button;
+}
+
+function makeCollectionActions(selectAllLabel, scope, curveId = "") {
+  const actions = document.createElement("div");
+  actions.className = "collection-actions";
+  actions.append(selectAllLabel, makeCollectionPopoutButton(scope, curveId));
+  return actions;
+}
+
 function inputTime(value) {
   return value ? value.slice(0, 19) : "";
 }
@@ -112,7 +155,7 @@ function populateCollections(reset = false) {
     const selectAllText = document.createElement("span");
     selectAllText.textContent = "Select all";
     selectAllLabel.append(selectAll, selectAllText);
-    controls.collectionOptions.append(selectAllLabel);
+    controls.collectionOptions.append(makeCollectionActions(selectAllLabel, "map"));
   }
   for (const collection of collections) {
     const label = document.createElement("label");
@@ -129,6 +172,190 @@ function populateCollections(reset = false) {
   }
   updateCollectionSummary();
   populateMeasurementTypes();
+}
+
+function collectionPopoutItems(scope) {
+  if (scope === "compare") return sortCollectionItems(compareCollectionItems());
+  return sortCollectionItems(mapCollectionItems());
+}
+
+function collectionPopoutSelected(scope, curveId) {
+  if (scope === "compare") {
+    const curve = findCompareCurve(curveId);
+    return curve ? compareSelectedCollections(curve) : [];
+  }
+  return selectedCollections();
+}
+
+function collectionPopoutColumns(items) {
+  if (!items.length) return [];
+  const columnCount = Math.min(5, Math.max(1, Math.ceil(items.length / 24)));
+  const rowsPerColumn = Math.ceil(items.length / columnCount);
+  return Array.from({ length: columnCount }, (_, index) =>
+    items.slice(index * rowsPerColumn, (index + 1) * rowsPerColumn)
+  );
+}
+
+function updateCollectionPopoutCount() {
+  const state = collectionPopoutState;
+  if (!state) return;
+  collectionPopoutControls.count.textContent =
+    `${state.selected.size} of ${state.items.length} selected`;
+}
+
+function renderCollectionPopout() {
+  const state = collectionPopoutState;
+  if (!state) return;
+
+  collectionPopoutControls.title.textContent =
+    state.scope === "compare" ? "Select curve collections" : "Select collections";
+  collectionPopoutControls.list.replaceChildren();
+
+  for (const columnItems of collectionPopoutColumns(state.items)) {
+    const column = document.createElement("div");
+    column.className = "collection-popout-column";
+
+    for (const item of columnItems) {
+      const value = collectionItemValue(item);
+      const option = document.createElement("button");
+      option.className = "collection-popout-item";
+      option.type = "button";
+      option.dataset.index = String(state.items.indexOf(item));
+      option.dataset.value = value;
+      option.setAttribute("role", "option");
+      option.setAttribute(
+        "aria-selected",
+        state.selected.has(value) ? "true" : "false"
+      );
+      option.classList.toggle("selected", state.selected.has(value));
+      option.textContent = collectionItemLabel(item);
+      column.append(option);
+    }
+
+    collectionPopoutControls.list.append(column);
+  }
+  updateCollectionPopoutCount();
+}
+
+function openCollectionPopout(scope, curveId = "") {
+  const items = collectionPopoutItems(scope);
+  collectionPopoutState = {
+    scope,
+    curveId,
+    items,
+    selected: new Set(collectionPopoutSelected(scope, curveId)),
+    anchorIndex: null,
+  };
+  renderCollectionPopout();
+  if (!collectionPopoutControls.dialog.open) {
+    collectionPopoutControls.dialog.showModal();
+  }
+}
+
+function closeCollectionPopout() {
+  if (collectionPopoutControls.dialog.open) {
+    collectionPopoutControls.dialog.close();
+  }
+  collectionPopoutState = null;
+}
+
+function selectCollectionPopoutIndex(index, event) {
+  const state = collectionPopoutState;
+  if (!state) return;
+  const item = state.items[index];
+  if (!item) return;
+
+  const additive = event.ctrlKey || event.metaKey;
+  if (event.shiftKey && state.anchorIndex !== null) {
+    const start = Math.min(state.anchorIndex, index);
+    const end = Math.max(state.anchorIndex, index);
+    if (!additive) state.selected.clear();
+    for (let position = start; position <= end; position += 1) {
+      state.selected.add(collectionItemValue(state.items[position]));
+    }
+  } else {
+    const value = collectionItemValue(item);
+    if (state.selected.has(value)) state.selected.delete(value);
+    else state.selected.add(value);
+    state.anchorIndex = index;
+  }
+  renderCollectionPopout();
+}
+
+function selectAllCollectionPopout() {
+  const state = collectionPopoutState;
+  if (!state) return;
+  state.selected = new Set(state.items.map(collectionItemValue));
+  state.anchorIndex = null;
+  renderCollectionPopout();
+}
+
+function clearCollectionPopout() {
+  const state = collectionPopoutState;
+  if (!state) return;
+  state.selected.clear();
+  state.anchorIndex = null;
+  renderCollectionPopout();
+}
+
+async function applyCollectionPopout() {
+  const state = collectionPopoutState;
+  if (!state) return;
+  const selected = state.items
+    .filter((item) => state.selected.has(collectionItemValue(item)))
+    .map(collectionItemValue);
+
+  closeCollectionPopout();
+  if (state.scope === "compare") {
+    await applyCompareCollectionSelection(state.curveId, selected);
+  } else {
+    await applyMapCollectionSelection(selected);
+  }
+}
+
+function initializeCollectionPopout() {
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-collection-popout]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openCollectionPopout(
+      button.dataset.collectionScope,
+      button.dataset.curveId || ""
+    );
+  });
+
+  collectionPopoutControls.list.addEventListener("click", (event) => {
+    const item = event.target.closest(".collection-popout-item");
+    if (!item) return;
+    selectCollectionPopoutIndex(Number(item.dataset.index), event);
+  });
+
+  collectionPopoutControls.list.addEventListener("keydown", (event) => {
+    if (event.key !== " " && event.key !== "Enter") return;
+    const item = event.target.closest(".collection-popout-item");
+    if (!item) return;
+    event.preventDefault();
+    selectCollectionPopoutIndex(Number(item.dataset.index), event);
+  });
+
+  collectionPopoutControls.allButton.addEventListener("click", selectAllCollectionPopout);
+  collectionPopoutControls.clearButton.addEventListener("click", clearCollectionPopout);
+  collectionPopoutControls.cancelButton.addEventListener("click", closeCollectionPopout);
+  collectionPopoutControls.closeButton.addEventListener("click", closeCollectionPopout);
+  collectionPopoutControls.applyButton.addEventListener("click", () => {
+    applyCollectionPopout().catch((error) => {
+      setStatus(error.message);
+    });
+  });
+  collectionPopoutControls.dialog.addEventListener("click", (event) => {
+    if (event.target === collectionPopoutControls.dialog) {
+      closeCollectionPopout();
+    }
+  });
+  collectionPopoutControls.dialog.addEventListener("close", () => {
+    collectionPopoutState = null;
+  });
 }
 
 function optionParams() {

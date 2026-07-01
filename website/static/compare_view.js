@@ -183,7 +183,7 @@ function makeCompareCollectionPicker(curve) {
     const allText = document.createElement("span");
     allText.textContent = "Select all";
     allLabel.append(allInput, allText);
-    options.append(allLabel);
+    options.append(makeCollectionActions(allLabel, "compare", curve.id));
   }
 
   for (const collection of collections) {
@@ -412,23 +412,13 @@ function findCompareCurve(id) {
   return compareCurves.find((curve) => curve.id === id);
 }
 
-async function updateCompareCollections(input) {
-  const curve = findCompareCurve(input.dataset.curveId);
+async function applyCompareCollectionSelection(curveId, collections) {
+  const curve = findCompareCurve(curveId);
   if (!curve) return;
   const entriesScrollTop = compareControls.entries.scrollTop;
   rememberCompareCollectionScroll(curve.id);
 
-  const selector = `input[data-compare-collection][data-curve-id="${curve.id}"]`;
-  const collectionInputs = [...compareControls.entries.querySelectorAll(selector)];
-  if ("compareSelectAll" in input.dataset) {
-    for (const checkbox of collectionInputs) {
-      checkbox.checked = input.checked;
-    }
-  }
-
-  curve.collections = collectionInputs
-    .filter((checkbox) => checkbox.checked)
-    .map((checkbox) => checkbox.value);
+  curve.collections = [...collections];
   compareOpenCollectionCurve = curve.id;
   curve.options = null;
 
@@ -441,6 +431,24 @@ async function updateCompareCollections(input) {
   renderCompareEntries();
   compareControls.entries.scrollTop = entriesScrollTop;
   restoreCompareCollectionScroll(curve.id);
+}
+
+async function updateCompareCollections(input) {
+  const curve = findCompareCurve(input.dataset.curveId);
+  if (!curve) return;
+
+  const selector = `input[data-compare-collection][data-curve-id="${curve.id}"]`;
+  const collectionInputs = [...compareControls.entries.querySelectorAll(selector)];
+  if ("compareSelectAll" in input.dataset) {
+    for (const checkbox of collectionInputs) {
+      checkbox.checked = input.checked;
+    }
+  }
+
+  const collections = collectionInputs
+    .filter((checkbox) => checkbox.checked)
+    .map((checkbox) => checkbox.value);
+  await applyCompareCollectionSelection(curve.id, collections);
 }
 
 async function updateCompareCurve(event) {

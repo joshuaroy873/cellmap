@@ -194,6 +194,33 @@ label {
   background: #fff;
 }
 
+.collection-actions {
+  position: sticky;
+  z-index: 2;
+  top: -0.35rem;
+  display: flex;
+  gap: 0.35rem;
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+  background: #fff;
+}
+
+.collection-actions .collection-select-all {
+  position: static;
+  flex: 1 1 auto;
+  border-bottom: 0;
+}
+
+.collection-popout-button {
+  flex: 0 0 auto;
+  margin: 0.28rem 0.25rem 0.28rem 0;
+  padding: 0.25rem 0.5rem;
+  color: var(--accent-dark);
+  font-size: 0.72rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .collection-option input {
   width: auto;
   min-height: 0;
@@ -838,12 +865,94 @@ h2 {
   background: rgba(24, 33, 43, 0.38);
 }
 
+.collection-popout {
+  width: min(1100px, calc(100vw - 2rem));
+  max-height: min(760px, calc(100vh - 2rem));
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: 0 20px 70px rgba(25, 42, 56, 0.25);
+}
+
+.collection-popout::backdrop {
+  background: rgba(24, 33, 43, 0.38);
+}
+
 .cdf-dialog {
   display: grid;
   height: 100%;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.4rem;
   padding: 1rem;
+}
+
+.collection-popout-dialog {
+  display: grid;
+  max-height: min(760px, calc(100vh - 2rem));
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  padding: 1rem;
+}
+
+.collection-popout-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.collection-popout-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.45rem;
+  min-height: 280px;
+  overflow: auto;
+  padding: 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  scrollbar-gutter: stable;
+}
+
+.collection-popout-column {
+  display: grid;
+  align-content: start;
+  gap: 0.28rem;
+}
+
+.collection-popout-item {
+  min-height: 2rem;
+  padding: 0.4rem 0.55rem;
+  overflow: hidden;
+  border-color: transparent;
+  background: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-popout-item:hover {
+  border-color: #aeb9c3;
+}
+
+.collection-popout-item.selected {
+  border-color: #95c6d7;
+  background: #eaf6fa;
+  color: var(--accent-dark);
+}
+
+.collection-popout-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.collection-popout-actions button {
+  width: auto;
+  min-width: 6.5rem;
 }
 
 .modal-close {

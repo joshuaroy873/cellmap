@@ -36,6 +36,18 @@ const compareControls = {
   summary: $("compare-summary"),
 };
 
+const collectionPopoutControls = {
+  dialog: $("collection-popout"),
+  title: $("collection-popout-title"),
+  count: $("collection-popout-count"),
+  list: $("collection-popout-list"),
+  closeButton: $("collection-popout-close"),
+  clearButton: $("collection-popout-clear"),
+  allButton: $("collection-popout-all"),
+  cancelButton: $("collection-popout-cancel"),
+  applyButton: $("collection-popout-apply"),
+};
+
 const measurementLabels = {
   radio: "Radio",
   neighbor: "Neighbour",
@@ -59,6 +71,7 @@ let compareCurves = [];
 let compareCurveNumber = 0;
 let compareRequestNumber = 0;
 let comparePayload = null;
+let collectionPopoutState = null;
 
 function setStatus(message) {
   $("status").textContent = message;

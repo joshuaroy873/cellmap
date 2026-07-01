@@ -60,6 +60,28 @@ async function refreshOptionsAndData(resetFilters = false) {
   }
 }
 
+async function afterMapCollectionSelectionChanged() {
+  updateCollectionSummary();
+  populateMeasurementTypes();
+  applyCollectionRange();
+  fittedSelection = "";
+  if (!selectedCollections().length) {
+    resetFilterOptions();
+    showSelectionPrompt("Select collection");
+    setStatus("Select collection");
+    return;
+  }
+  await refreshOptionsAndData(true);
+}
+
+async function applyMapCollectionSelection(collections) {
+  const selected = new Set(collections);
+  for (const input of collectionInputs()) {
+    input.checked = selected.has(input.value);
+  }
+  await afterMapCollectionSelectionChanged();
+}
+
 async function initialize() {
   try {
     catalog = await getJSON("/api/catalog");
@@ -138,17 +160,7 @@ controls.collectionOptions.addEventListener("change", async (event) => {
       input.checked = event.target.checked;
     }
   }
-  updateCollectionSummary();
-  populateMeasurementTypes();
-  applyCollectionRange();
-  fittedSelection = "";
-  if (!selectedCollections().length) {
-    resetFilterOptions();
-    showSelectionPrompt("Select collection");
-    setStatus("Select collection");
-    return;
-  }
-  await refreshOptionsAndData(true);
+  await afterMapCollectionSelectionChanged();
 });
 
 document.addEventListener("click", (event) => {
@@ -242,4 +254,5 @@ for (const eventName of ["click", "keydown", "pointermove", "touchstart"]) {
 
 document.body.dataset.tab = activeTab;
 resetIdleTimer();
+initializeCollectionPopout();
 initialize();
