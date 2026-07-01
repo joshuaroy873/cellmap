@@ -1,0 +1,10 @@
+data/
+AI_CONTEXT.md
+
+__pycache__/
+*.py[cod]
+.venv/
+
+.agents/
+.codex/
+.venv

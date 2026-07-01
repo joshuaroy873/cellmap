@@ -1,0 +1,4 @@
+- NULL GPS not shown (e.g. NH_5777)
+- `Data Technology` field not yet implemented in SCHEMA, which dentotes if Wi-Fi was used for data, or Cellular
+- When Technology==LTE/NR, the dropdown menu doesn't show the other
+- When running Ookla, the PDSCH/PUSCH filter fails (e.g. STARLIN->SBN-ATL data)

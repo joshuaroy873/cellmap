@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="LTE and 5G NR measurement explorer">
+  <title>Cellular Measurement Map</title>
+  <link rel="preconnect" href="https://a.basemaps.cartocdn.com">
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/styles.css?v=20260615-scroll">
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">QP</span>
+        <div>
+          <strong>Cellular Measurement Map</strong>
+          <span id="status">Loading dataset</span>
+        </div>
+      </div>
+
+      <label>
+        Database
+        <select id="database">
+          <option value="">Select database</option>
+        </select>
+      </label>
+      <div class="collection-field">
+        <span>Collection</span>
+        <details class="collection-picker">
+          <summary id="collection-summary">Select collection</summary>
+          <div id="collection-options" class="collection-options"></div>
+        </details>
+      </div>
+      <label>
+        Start time
+        <input id="start-time" type="datetime-local" step="1">
+      </label>
+      <label>
+        End time
+        <input id="end-time" type="datetime-local" step="1">
+      </label>
+      <button id="reset-time" type="button">Full range</button>
+    </header>
+
+    <main class="workspace">
+      <aside class="filters">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Filters</span>
+            <h1>Measurement view</h1>
+          </div>
+          <button id="clear-filters" class="text-button" type="button">Clear</button>
+        </div>
+
+        <label>
+          Measurement type
+          <select id="measurement"></select>
+        </label>
+        <label>
+          Technology
+          <select id="technology"></select>
+        </label>
+        <label>
+          Operator
+          <select id="operator"></select>
+        </label>
+        <label>
+          Band
+          <select id="band"></select>
+        </label>
+        <label>
+          PCI
+          <select id="pci"></select>
+        </label>
+        <label>
+          SSB index
+          <select id="ssb"></select>
+        </label>
+        <label>
+          Metric
+          <select id="metric"></select>
+        </label>
+        <button id="show-cdf" class="secondary-button" type="button" disabled>
+          Show CDF
+        </button>
+
+        <div class="filter-note">
+          The server limits map points and aggregates the chart to keep browser
+          payloads small.
+        </div>
+      </aside>
+
+      <section class="map-panel">
+        <div id="map" aria-label="Colored cellular measurement map"></div>
+        <div id="map-message" class="map-message">
+          Select database and collection
+        </div>
+        <div id="map-legend" class="legend" hidden>
+          <strong id="legend-unit"></strong>
+          <div class="legend-scale"></div>
+          <div id="legend-axis" class="legend-axis"></div>
+        </div>
+      </section>
+
+      <section id="bottom-panel" class="bottom-panel">
+        <article id="time-series-card" class="chart-card">
+          <div class="section-title">
+            <div>
+              <span class="eyebrow">Time series</span>
+              <h2 id="chart-title">Measurement</h2>
+            </div>
+            <span id="series-count" class="muted"></span>
+          </div>
+          <div class="chart-body">
+            <canvas id="chart" aria-label="Time-series chart"></canvas>
+            <div id="time-series-message" class="panel-prompt">
+              Select Operator
+            </div>
+          </div>
+        </article>
+
+        <article class="summary-card">
+          <span class="eyebrow">Summary</span>
+          <div class="stats">
+            <div><span>Samples</span><strong id="stat-count">-</strong></div>
+            <div><span>Median</span><strong id="stat-median">-</strong></div>
+            <div><span>P5</span><strong id="stat-p5">-</strong></div>
+            <div><span>P95</span><strong id="stat-p95">-</strong></div>
+            <div><span>Minimum</span><strong id="stat-minimum">-</strong></div>
+            <div><span>Maximum</span><strong id="stat-maximum">-</strong></div>
+          </div>
+        </article>
+
+        <article class="details-card">
+          <span class="eyebrow">Selected point</span>
+          <dl id="point-details">
+            <div class="empty-detail panel-prompt">Select a point on the map</div>
+          </dl>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="idle-overlay" class="idle-overlay" hidden>
+    <div class="idle-message">
+      <strong>Session paused</strong>
+      <span>Refresh page to continue.</span>
+    </div>
+  </div>
+
+  <dialog id="cdf-modal" class="cdf-modal" aria-labelledby="cdf-title">
+    <div class="cdf-dialog">
+      <div class="section-title">
+        <div>
+          <span class="eyebrow">Distribution</span>
+          <h2 id="cdf-title">CDF</h2>
+        </div>
+        <button id="cdf-close" class="modal-close" type="button" aria-label="Close CDF">
+          X
+        </button>
+      </div>
+      <span id="cdf-count" class="muted"></span>
+      <div class="cdf-chart-body">
+        <canvas id="cdf-chart" aria-label="Cumulative distribution chart"></canvas>
+        <div id="cdf-message" class="panel-prompt">Loading CDF</div>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/app.js?v=20260701-filter-tree"></script>
+</body>
+</html>

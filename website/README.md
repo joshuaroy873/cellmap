@@ -1,0 +1,103 @@
+# Website
+
+## Purpose
+
+The website serves a lightweight cellular measurement explorer from the local
+DuckDB catalog and Parquet partitions in `data/_processed`.
+
+There is no frontend build step.
+
+## Run
+
+From the repository root:
+
+```bash
+source .venv/bin/activate
+python website/server.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+Listen on the local network:
+
+```bash
+python website/server.py --host 0.0.0.0 --port 8000
+```
+
+## Files
+
+```text
+website/server.py          HTTP API and static file server
+website/static/index.html  page structure
+website/static/styles.css  layout and styling
+website/static/app.js      filters, map, charts, CDF, and UI state
+```
+
+Leaflet 1.9.4 is vendored in `website/static/vendor/leaflet`.
+Map tiles use CARTO Positron.
+
+## API
+
+```text
+GET /api/health
+GET /api/catalog
+GET /api/options
+GET /api/measurements
+GET /api/cdf
+```
+
+The API accepts predefined measurement types, metrics, and filters only.
+JSON responses use gzip when supported by the browser.
+
+Payload limits:
+
+```text
+map points          6,000 max
+time-series buckets about 500
+CDF points          401 quantile points
+```
+
+## UI
+
+Top controls:
+
+```text
+database, collection, start time, end time
+```
+
+Filter controls:
+
+```text
+measurement type, technology, operator, band, PCI, SSB index, metric
+```
+
+Main panels:
+
+```text
+colored measurement map
+time-series chart
+summary statistics
+selected-point details
+CDF modal
+```
+
+The collection dropdown supports multiple collections and Select all.
+Band values are technology-qualified, such as `b48` and `n48`.
+Band, PCI, and SSB options show matching row counts.
+
+The time-series query is skipped until one operator is selected.
+
+The CDF modal is drawn in browser canvas from `/api/cdf`.
+It shows P5, median, and P95 in the header and chart callouts.
+
+After 10 minutes without browser activity, the page shows a transparent
+session-paused overlay. Refreshing starts a new browser session.
+
+## Notes
+
+Close the website server before running `scripts/import_csvs.py` if DuckDB
+reports a write lock.
