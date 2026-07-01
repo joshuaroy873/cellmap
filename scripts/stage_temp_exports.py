@@ -119,11 +119,6 @@ def main() -> int:
         help="staging folder; default: data/_temp",
     )
     parser.add_argument(
-        "--no-import",
-        action="store_true",
-        help="stage files only; do not run scripts/import_csvs.py",
-    )
-    parser.add_argument(
         "--force",
         action="store_true",
         help="replace existing CSVs and force the subsequent import",
@@ -138,8 +133,7 @@ def main() -> int:
         return 0
 
     staged = [stage_file(path, args.date, args.force) for path in csvs]
-    if not args.no_import:
-        run_import(staged, args.force)
+    run_import(staged, args.force)
     return 0
 
 
