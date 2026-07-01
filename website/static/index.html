@@ -208,6 +208,36 @@
     </div>
   </dialog>
 
+  <dialog id="collection-popout" class="collection-popout" aria-labelledby="collection-popout-title">
+    <div class="collection-popout-dialog">
+      <div class="section-title">
+        <div>
+          <span class="eyebrow">Collections</span>
+          <h2 id="collection-popout-title">Select collections</h2>
+        </div>
+        <button id="collection-popout-close" class="modal-close" type="button" aria-label="Close collection selector">
+          X
+        </button>
+      </div>
+      <p class="collection-popout-help">
+        Click to toggle. Shift-click selects a range. Ctrl/Cmd-click toggles individual names.
+      </p>
+      <span id="collection-popout-count" class="muted"></span>
+      <div
+        id="collection-popout-list"
+        class="collection-popout-list"
+        role="listbox"
+        aria-multiselectable="true"
+      ></div>
+      <div class="collection-popout-actions">
+        <button id="collection-popout-clear" type="button">Clear</button>
+        <button id="collection-popout-all" type="button">Select all</button>
+        <button id="collection-popout-cancel" type="button">Cancel</button>
+        <button id="collection-popout-apply" class="secondary-button" type="button">Apply</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="/vendor/leaflet/leaflet.js"></script>
   <script src="/state.js?v=20260701-new-features"></script>
   <script src="/api.js?v=20260701-new-features"></script>
