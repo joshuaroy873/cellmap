@@ -134,7 +134,7 @@ newer export are retained. Rows are not deduplicated by timestamp.
 
 ## Canonical Columns
 
-Common columns:
+These columns are present in every processed measurement type:
 
 ```text
 measured_at TIMESTAMP
@@ -146,7 +146,32 @@ operator_name VARCHAR
 model VARCHAR
 ```
 
-Radio/configuration columns:
+### Radio
+
+```text
+technology VARCHAR
+rat VARCHAR
+band_number BIGINT
+pci BIGINT
+ssb_index BIGINT
+dl_channel_number BIGINT
+ul_channel_number BIGINT
+dl_bandwidth_mhz DOUBLE
+dl_bandwidth_aggregated_mhz DOUBLE
+ul_bandwidth_mhz DOUBLE
+ul_bandwidth_aggregated_mhz DOUBLE
+dl_scs_khz BIGINT
+cell_type VARCHAR
+rsrp_dbm DOUBLE
+rsrq_db DOUBLE
+rssi_dbm DOUBLE
+sinr_db DOUBLE
+```
+
+LTE radio stores `ssb_index` as `NULL` and `dl_scs_khz` as 15. NR radio
+stores `rssi_dbm` as `NULL`.
+
+### Radio Neighbor
 
 ```text
 technology VARCHAR
@@ -157,36 +182,62 @@ ssb_index BIGINT
 dl_channel_number BIGINT
 ul_channel_number BIGINT
 dl_scs_khz BIGINT
-ul_scs_khz BIGINT
-cell_type VARCHAR
 is_serving_beam BOOLEAN
-```
-
-Metric columns:
-
-```text
 rsrp_dbm DOUBLE
 rsrq_db DOUBLE
 rssi_dbm DOUBLE
 sinr_db DOUBLE
+```
+
+LTE neighbor stores `ssb_index`, `is_serving_beam`, and `sinr_db` as `NULL`;
+NR neighbor stores `rssi_dbm` as `NULL`.
+
+### PDSCH
+
+```text
+technology VARCHAR
+rat VARCHAR
+band_number BIGINT
+pci BIGINT
+ssb_index BIGINT
+dl_channel_number BIGINT
+dl_bandwidth_mhz DOUBLE
+dl_bandwidth_aggregated_mhz DOUBLE
+dl_scs_khz BIGINT
+cell_type VARCHAR
 throughput_mbps DOUBLE
 mcs DOUBLE
 avg_pdsch_layers DOUBLE
-avg_pusch_layers DOUBLE
 pdsch_rbs DOUBLE
-pusch_rbs DOUBLE
 bler DOUBLE
 modulation VARCHAR
 ```
 
-Bandwidth columns remain `DOUBLE`:
+LTE PDSCH stores `ssb_index` as `NULL` and `dl_scs_khz` as 15. Throughput is
+converted from Kbps to Mbps.
+
+### PUSCH
 
 ```text
-dl_bandwidth_mhz
-dl_bandwidth_aggregated_mhz
-ul_bandwidth_mhz
-ul_bandwidth_aggregated_mhz
+technology VARCHAR
+rat VARCHAR
+band_number BIGINT
+pci BIGINT
+ssb_index BIGINT
+ul_channel_number BIGINT
+ul_bandwidth_mhz DOUBLE
+ul_bandwidth_aggregated_mhz DOUBLE
+ul_scs_khz BIGINT
+cell_type VARCHAR
+throughput_mbps DOUBLE
+mcs DOUBLE
+avg_pusch_layers DOUBLE
+pusch_rbs DOUBLE
+modulation VARCHAR
 ```
+
+LTE PUSCH stores `ssb_index` as `NULL` and `ul_scs_khz` as 15. Throughput is
+converted from Kbps to Mbps.
 
 ## Normalization
 
