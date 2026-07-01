@@ -1,19 +1,6 @@
 "use strict";
 
-async function getJSON(path, params = {}) {
-  if (sessionPaused) {
-    throw new Error("Session paused. Refresh page to continue.");
-  }
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([key, value]) => {
-    const values = Array.isArray(value) ? value : [value];
-    for (const item of values) {
-      if (item !== undefined && item !== null && item !== "" && item !== "all") {
-        url.searchParams.append(key, item);
-      }
-    }
-  });
-  const response = await fetch(url);
+async function readJSONResponse(response) {
   const text = await response.text();
   let payload;
   try {
@@ -29,4 +16,33 @@ async function getJSON(path, params = {}) {
     throw new Error(payload.error || `Request failed: ${response.status}`);
   }
   return payload;
+}
+
+async function getJSON(path, params = {}) {
+  if (sessionPaused) {
+    throw new Error("Session paused. Refresh page to continue.");
+  }
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => {
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (item !== undefined && item !== null && item !== "" && item !== "all") {
+        url.searchParams.append(key, item);
+      }
+    }
+  });
+  const response = await fetch(url);
+  return readJSONResponse(response);
+}
+
+async function postJSON(path, payload) {
+  if (sessionPaused) {
+    throw new Error("Session paused. Refresh page to continue.");
+  }
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return readJSONResponse(response);
 }

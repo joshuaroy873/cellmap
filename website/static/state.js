@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 
 const controls = {
   database: $("database"),
+  collectionField: document.querySelector(".collection-field"),
   collectionPicker: document.querySelector(".collection-picker"),
   collectionOptions: $("collection-options"),
   collectionSummary: $("collection-summary"),
@@ -17,6 +18,22 @@ const controls = {
   ssb: $("ssb"),
   metric: $("metric"),
   cdfButton: $("show-cdf"),
+};
+
+const tabControls = {
+  mapButton: $("tab-map"),
+  compareButton: $("tab-compare"),
+  mapPanel: $("map-tab"),
+  comparePanel: $("compare-tab"),
+};
+
+const compareControls = {
+  addButton: $("compare-add"),
+  runButton: $("compare-run"),
+  entries: $("compare-entries"),
+  charts: $("compare-charts"),
+  message: $("compare-message"),
+  summary: $("compare-summary"),
 };
 
 const measurementLabels = {
@@ -37,6 +54,11 @@ let cdfRequestNumber = 0;
 let cdfPayload = null;
 let idleTimer = null;
 let sessionPaused = false;
+let activeTab = "map";
+let compareCurves = [];
+let compareCurveNumber = 0;
+let compareRequestNumber = 0;
+let comparePayload = null;
 
 function setStatus(message) {
   $("status").textContent = message;

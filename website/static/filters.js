@@ -44,16 +44,27 @@ function currentCollections() {
   ) || [];
 }
 
+function databaseCollections() {
+  return currentDatabase()?.collections || [];
+}
+
 function inputTime(value) {
   return value ? value.slice(0, 19) : "";
 }
 
-function applyCollectionRange() {
-  const collections = currentCollections();
+function applyRange(collections) {
   const starts = collections.map((item) => item.start).filter(Boolean);
   const ends = collections.map((item) => item.end).filter(Boolean);
   controls.start.value = inputTime(starts.sort()[0]);
   controls.end.value = inputTime(ends.sort().at(-1));
+}
+
+function applyCollectionRange() {
+  applyRange(currentCollections());
+}
+
+function applyDatabaseRange() {
+  applyRange(databaseCollections());
 }
 
 function populateMeasurementTypes() {

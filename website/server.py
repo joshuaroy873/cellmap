@@ -26,6 +26,7 @@ from cellmap_schema import (  # noqa: E402
     METRICS,
     NULL_FILTER_VALUE,
 )
+from compare_api import compare_cdf_payload  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
@@ -113,7 +114,17 @@ def catalog_payload() -> dict[str, object]:
         "databases": [
             {"name": name, "collections": collections}
             for name, collections in databases.items()
-        ]
+        ],
+        "measurements": [
+            {
+                "value": category,
+                "metrics": [
+                    {"value": name, "label": label, "unit": unit}
+                    for name, (label, unit) in metrics.items()
+                ],
+            }
+            for category, metrics in METRICS.items()
+        ],
     }
 
 
@@ -662,6 +673,40 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as error:
             self.log_error("%s", error)
             self.send_json({"error": "The measurement query failed"}, status=500)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/compare/cdf":
+            self.send_json({"error": "Unknown API endpoint"}, status=404)
+            return
+
+        try:
+            payload = compare_cdf_payload(
+                self.read_json_body(), ROOT, DB_PATH, MEASUREMENTS
+            )
+            self.send_json(payload)
+        except ValueError as error:
+            self.send_json({"error": str(error)}, status=400)
+        except FileNotFoundError as error:
+            self.send_json({"error": str(error)}, status=503)
+        except Exception as error:
+            self.log_error("%s", error)
+            self.send_json({"error": "The compare query failed"}, status=500)
+
+    def read_json_body(self) -> dict[str, object]:
+        length = int(self.headers.get("Content-Length", "0") or "0")
+        if length <= 0:
+            raise ValueError("JSON request body is required")
+        if length > 1_000_000:
+            raise ValueError("JSON request body is too large")
+        body = self.rfile.read(length)
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError as error:
+            raise ValueError("Invalid JSON request body") from error
+        if not isinstance(payload, dict):
+            raise ValueError("JSON request body must be an object")
+        return payload
 
     def send_json(self, payload: object, status: int = 200) -> None:
         body = json.dumps(

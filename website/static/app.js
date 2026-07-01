@@ -27,6 +27,7 @@ function resetIdleTimer() {
 }
 
 async function loadMeasurements() {
+  if (activeTab !== "map") return;
   if (!controls.metric.value) return;
   const currentRequest = ++requestNumber;
   const showTimeSeries = controls.operator.value !== "all";
@@ -69,6 +70,7 @@ async function initialize() {
     populateCollections(true);
     applyCollectionRange();
     resetFilterOptions();
+    initializeCompare();
     showSelectionPrompt("Select database and collection");
     setStatus("Select database and collection");
   } catch (error) {
@@ -77,14 +79,52 @@ async function initialize() {
   }
 }
 
+function setActiveTab(tab) {
+  activeTab = tab;
+  document.body.dataset.tab = tab;
+  tabControls.mapPanel.hidden = tab !== "map";
+  tabControls.comparePanel.hidden = tab !== "compare";
+  tabControls.mapButton.classList.toggle("active", tab === "map");
+  tabControls.compareButton.classList.toggle("active", tab === "compare");
+  closeCdf();
+
+  if (tab === "map") {
+    setTimeout(() => map.invalidateSize(), 0);
+    if (!controls.database.value || !selectedCollections().length) {
+      const message = controls.database.value
+        ? "Select collection"
+        : "Select database and collection";
+      showSelectionPrompt(message);
+      setStatus(message);
+    } else {
+      refreshOptionsAndData(false);
+    }
+  } else {
+    if (!controls.start.value && !controls.end.value) {
+      applyDatabaseRange();
+    }
+    onCompareDatabaseChanged();
+    setStatus(controls.database.value ? "Configure compare curves" : "Select database");
+  }
+}
+
+tabControls.mapButton.addEventListener("click", () => setActiveTab("map"));
+tabControls.compareButton.addEventListener("click", () => setActiveTab("compare"));
+
 controls.database.addEventListener("change", async () => {
   populateCollections(true);
-  applyCollectionRange();
+  if (activeTab === "compare") applyDatabaseRange();
+  else applyCollectionRange();
   resetFilterOptions();
   fittedSelection = "";
+  onCompareDatabaseChanged();
   if (!controls.database.value) {
     showSelectionPrompt("Select database and collection");
-    setStatus("Select database and collection");
+    setStatus(activeTab === "compare" ? "Select database" : "Select database and collection");
+    return;
+  }
+  if (activeTab === "compare") {
+    setStatus("Configure compare curves");
     return;
   }
   showSelectionPrompt("Select collection");
@@ -148,7 +188,9 @@ controls.metric.addEventListener("change", () => {
 });
 
 for (const name of ["start", "end"]) {
-  controls[name].addEventListener("change", loadMeasurements);
+  controls[name].addEventListener("change", () => {
+    if (activeTab === "map") loadMeasurements();
+  });
 }
 
 $("show-cdf").addEventListener("click", openCdf);
@@ -162,8 +204,12 @@ $("cdf-modal").addEventListener("close", () => {
 });
 
 $("reset-time").addEventListener("click", () => {
-  applyCollectionRange();
-  loadMeasurements();
+  if (activeTab === "compare") {
+    applyDatabaseRange();
+  } else {
+    applyCollectionRange();
+    loadMeasurements();
+  }
 });
 
 $("clear-filters").addEventListener("click", () => {
@@ -185,13 +231,15 @@ $("clear-filters").addEventListener("click", () => {
 });
 
 window.addEventListener("resize", () => {
-  map.invalidateSize();
+  if (activeTab === "map") map.invalidateSize();
   if ($("cdf-modal").open && cdfPayload) drawCdf(cdfPayload);
+  if (activeTab === "compare") redrawCompareCharts();
 });
 
 for (const eventName of ["click", "keydown", "pointermove", "touchstart"]) {
   document.addEventListener(eventName, resetIdleTimer, { passive: true });
 }
 
+document.body.dataset.tab = activeTab;
 resetIdleTimer();
 initialize();
