@@ -34,11 +34,21 @@ python website/server.py --host 0.0.0.0 --port 8000
 website/server.py          HTTP API and static file server
 website/static/index.html  page structure
 website/static/styles.css  layout and styling
-website/static/app.js      filters, map, charts, CDF, and UI state
+website/static/state.js    shared UI state and DOM handles
+website/static/api.js      JSON request helper
+website/static/filters.js  collection and filter controls
+website/static/map_view.js Leaflet map and selected-point details
+website/static/charts.js   summary, time-series, and CDF drawing
+website/static/compare_view.js   Compare-tab curve builder
+website/static/compare_charts.js Compare-tab grouped CDF charts
+website/static/app.js      page initialization and event wiring
+website/compare_api.py     batch CDF API for the Compare tab
 ```
 
 Leaflet 1.9.4 is vendored in `website/static/vendor/leaflet`.
 Map tiles use CARTO Positron.
+The current map page is isolated in `map_view.js`; future tabs can add their
+own view files without changing the API helper or filter code.
 
 ## API
 
@@ -48,6 +58,7 @@ GET /api/catalog
 GET /api/options
 GET /api/measurements
 GET /api/cdf
+POST /api/compare/cdf
 ```
 
 The API accepts predefined measurement types, metrics, and filters only.
@@ -78,11 +89,9 @@ measurement type, technology, operator, band, PCI, SSB index, metric
 Main panels:
 
 ```text
-colored measurement map
-time-series chart
-summary statistics
-selected-point details
-CDF modal
+Map tab: colored measurement map, time-series chart, summary statistics,
+selected-point details, CDF modal
+Compare tab: per-curve filters and grouped CDF charts
 ```
 
 The collection dropdown supports multiple collections and Select all.
@@ -93,6 +102,11 @@ The time-series query is skipped until one operator is selected.
 
 The CDF modal is drawn in browser canvas from `/api/cdf`.
 It shows P5, median, and P95 in the header and chart callouts.
+
+The Compare tab does not use the top collection selector. Each compare curve
+has its own collection, measurement/metric, color, line style, and radio
+filters. Running Compare sends all curves to `POST /api/compare/cdf` in one
+batch request and groups the returned CDF charts by measurement/metric.
 
 After 10 minutes without browser activity, the page shows a transparent
 session-paused overlay. Refreshing starts a new browser session.

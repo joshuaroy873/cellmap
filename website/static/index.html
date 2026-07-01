@@ -7,7 +7,7 @@
   <title>Cellular Measurement Map</title>
   <link rel="preconnect" href="https://a.basemaps.cartocdn.com">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/styles.css?v=20260615-scroll">
+  <link rel="stylesheet" href="/styles.css?v=20260701-new-features">
 </head>
 <body>
   <div class="app">
@@ -44,7 +44,16 @@
       <button id="reset-time" type="button">Full range</button>
     </header>
 
-    <main class="workspace">
+    <nav class="tabs" aria-label="Measurement views">
+      <button id="tab-map" class="tab-button active" type="button" data-tab="map">
+        Map
+      </button>
+      <button id="tab-compare" class="tab-button" type="button" data-tab="compare">
+        Compare
+      </button>
+    </nav>
+
+    <main id="map-tab" class="workspace tab-panel">
       <aside class="filters">
         <div class="panel-heading">
           <div>
@@ -85,11 +94,6 @@
         <button id="show-cdf" class="secondary-button" type="button" disabled>
           Show CDF
         </button>
-
-        <div class="filter-note">
-          The server limits map points and aggregates the chart to keep browser
-          payloads small.
-        </div>
       </aside>
 
       <section class="map-panel">
@@ -141,6 +145,41 @@
         </article>
       </section>
     </main>
+
+    <main id="compare-tab" class="compare-workspace tab-panel" hidden>
+      <aside class="compare-builder">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Compare</span>
+            <h1>CDF curves</h1>
+          </div>
+          <button id="compare-add" class="add-curve-button" type="button">
+            <span aria-hidden="true">+</span>
+            Add
+          </button>
+        </div>
+
+        <div id="compare-entries" class="compare-entries"></div>
+
+        <button id="compare-run" class="secondary-button" type="button">
+          Run compare
+        </button>
+      </aside>
+
+      <section class="compare-results">
+        <div class="section-title">
+          <div>
+            <span class="eyebrow">CDF</span>
+            <h2>Compare distributions</h2>
+          </div>
+          <span id="compare-summary" class="muted"></span>
+        </div>
+        <div id="compare-message" class="panel-prompt">
+          Select a database, add curves, then run compare.
+        </div>
+        <div id="compare-charts" class="compare-charts"></div>
+      </section>
+    </main>
   </div>
 
   <div id="idle-overlay" class="idle-overlay" hidden>
@@ -170,6 +209,13 @@
   </dialog>
 
   <script src="/vendor/leaflet/leaflet.js"></script>
-  <script src="/app.js?v=20260701-filter-tree"></script>
+  <script src="/state.js?v=20260701-new-features"></script>
+  <script src="/api.js?v=20260701-new-features"></script>
+  <script src="/charts.js?v=20260701-new-features"></script>
+  <script src="/filters.js?v=20260701-new-features"></script>
+  <script src="/map_view.js?v=20260701-new-features"></script>
+  <script src="/compare_charts.js?v=20260701-new-features"></script>
+  <script src="/compare_view.js?v=20260701-new-features"></script>
+  <script src="/app.js?v=20260701-new-features"></script>
 </body>
 </html>

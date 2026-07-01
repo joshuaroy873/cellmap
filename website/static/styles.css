@@ -204,7 +204,7 @@ label {
 .app {
   display: grid;
   height: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .topbar {
@@ -217,6 +217,40 @@ label {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.97);
+}
+
+body[data-tab="compare"] .topbar > .collection-field {
+  display: none;
+}
+
+.tabs {
+  position: relative;
+  z-index: 900;
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.45rem 1rem 0;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.tab-button {
+  min-width: 6.5rem;
+  padding: 0.48rem 0.85rem;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.tab-button.active {
+  border-color: var(--accent);
+  background: #fff;
+  color: var(--accent-dark);
+}
+
+.tab-panel[hidden] {
+  display: none !important;
 }
 
 .brand {
@@ -262,7 +296,17 @@ label {
   padding: 0.75rem;
 }
 
+.compare-workspace {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(560px, 660px) minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.75rem;
+}
+
 .filters,
+.compare-builder,
+.compare-results,
 .map-panel,
 .bottom-panel article {
   border: 1px solid var(--line);
@@ -278,6 +322,245 @@ label {
   padding: 1rem;
   overflow: auto;
   border-radius: 10px;
+}
+
+.compare-builder {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 0.82rem;
+  padding: 1rem;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.compare-entries {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+  align-items: start;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.curve-card {
+  display: grid;
+  gap: 0.55rem;
+  align-self: start;
+  padding: 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.curve-card-header {
+  display: grid;
+  grid-template-columns: auto minmax(150px, 0.7fr) minmax(180px, 1fr);
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.curve-card-header strong {
+  align-self: center;
+  font-size: 0.85rem;
+}
+
+.curve-label-field {
+  min-width: 0;
+}
+
+.curve-label-field input {
+  min-height: 2.1rem;
+}
+
+.curve-fields {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.curve-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.curve-row-three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.curve-row-single {
+  grid-template-columns: 1fr;
+}
+
+.curve-row-actions {
+  grid-template-columns: 1fr 1fr auto auto;
+  align-items: end;
+}
+
+.compare-collection-field .collection-options {
+  position: static;
+  width: 100%;
+  max-height: 240px;
+  margin-top: 0.25rem;
+  box-shadow: none;
+}
+
+.curve-copy,
+.curve-delete {
+  justify-self: end;
+  min-height: 2.35rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.curve-copy {
+  border-color: #bfe3c8;
+  background: #f1fbf3;
+  color: #167239;
+}
+
+.curve-delete {
+  border-color: #efc8c8;
+  background: #fff6f6;
+  color: #9d2020;
+}
+
+.compare-results {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 1rem;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.compare-charts {
+  display: grid;
+  gap: 0.85rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.compare-chart-card {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 0.65rem;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.add-curve-button {
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.55rem 0.85rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.add-curve-button span {
+  display: grid;
+  width: 1.25rem;
+  height: 1.25rem;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.compare-chart-body {
+  position: relative;
+  width: min(100%, 900px);
+  aspect-ratio: 5 / 3.5;
+  justify-self: center;
+}
+
+.compare-chart-body canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.compare-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.5rem;
+}
+
+.compare-legend-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  padding: 0.55rem;
+  border-radius: 7px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.curve-preview {
+  justify-self: end;
+  align-self: center;
+  width: min(165px, 100%);
+  height: 4px;
+  border-radius: 999px;
+  background: var(--curve-color, #0072b2);
+}
+
+.curve-preview[data-style="dashed"] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--curve-color, #0072b2) 0 15px,
+    transparent 15px 23px
+  );
+}
+
+.curve-preview[data-style="dotted"] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--curve-color, #0072b2) 0 4px,
+    transparent 4px 10px
+  );
+}
+
+.curve-preview[data-style="dashdot"] {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--curve-color, #0072b2) 0 18px,
+    transparent 18px 25px,
+    var(--curve-color, #0072b2) 25px 30px,
+    transparent 30px 38px
+  );
+}
+
+.compare-legend-preview {
+  justify-self: start;
+  width: 110px;
+  margin-top: 0.4rem;
+}
+
+.compare-legend-item strong,
+.compare-legend-item span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.compare-legend-item strong {
+  color: var(--ink);
 }
 
 .panel-heading,
@@ -608,6 +891,10 @@ h2 {
     grid-template-columns: 210px minmax(0, 1fr);
   }
 
+  .compare-workspace {
+    grid-template-columns: minmax(420px, 500px) minmax(0, 1fr);
+  }
+
   .bottom-panel {
     grid-template-columns: minmax(300px, 1.5fr) 1fr;
   }
@@ -639,6 +926,30 @@ h2 {
   .workspace {
     grid-template-columns: 1fr;
     grid-template-rows: auto 60vh auto;
+  }
+
+  .compare-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .compare-collection-field .collection-options {
+    width: max(100%, 270px);
+  }
+
+  .compare-builder,
+  .compare-results {
+    min-height: 360px;
+  }
+
+  .curve-card-header,
+  .curve-row,
+  .curve-row-three,
+  .curve-row-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .curve-preview {
+    justify-self: stretch;
   }
 
   .filters {
