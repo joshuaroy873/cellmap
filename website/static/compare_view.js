@@ -18,6 +18,8 @@ const compareStyles = [
   { value: "dashdot", label: "Dash-dot" },
 ];
 
+const MAX_COMPARE_CURVES = 20;
+
 const compareResetAfter = {
   collection: ["technology", "operator", "band", "pci", "ssb", "metric"],
   measurement: ["technology", "operator", "band", "pci", "ssb", "metric"],
@@ -30,6 +32,14 @@ const compareResetAfter = {
 
 let compareOpenCollectionCurve = null;
 const compareCollectionScroll = {};
+
+function compareVisualDefaults(curveNumber) {
+  const visualIndex = curveNumber - 1;
+  const color = comparePalette[visualIndex % comparePalette.length].value;
+  const styleIndex = Math.floor(visualIndex / comparePalette.length);
+  const style = compareStyles[styleIndex % compareStyles.length].value;
+  return { color, style };
+}
 
 function compareMeasurementItems() {
   return Object.entries(measurementLabels).map(([value, label]) => ({
@@ -214,6 +224,7 @@ function makeCompareCollectionPicker(curve) {
 function compareCurveDefaults() {
   const id = `curve_${++compareCurveNumber}`;
   const metrics = compareMetricCatalog("radio");
+  const visual = compareVisualDefaults(compareCurveNumber);
   return {
     id,
     label: "",
@@ -225,8 +236,8 @@ function compareCurveDefaults() {
     band: "all",
     pci: "all",
     ssb: "all",
-    color: comparePalette[(compareCurveNumber - 1) % comparePalette.length].value,
-    style: "solid",
+    color: visual.color,
+    style: visual.style,
     options: null,
     optionRequest: 0,
   };
@@ -292,21 +303,90 @@ async function refreshAllCompareOptions() {
   renderCompareEntries();
 }
 
+function syncCompareCurveUiState() {
+  const ids = new Set(compareCurves.map((curve) => curve.id));
+  selectedCompareCurveIds = new Set(
+    [...selectedCompareCurveIds].filter((id) => ids.has(id))
+  );
+  collapsedCompareCurveIds = new Set(
+    [...collapsedCompareCurveIds].filter((id) => ids.has(id))
+  );
+}
+
+function allCompareCurvesSelected() {
+  return compareCurves.length > 0
+    && compareCurves.every((curve) => selectedCompareCurveIds.has(curve.id));
+}
+
+function updateCompareActionButtons() {
+  const hasSelection = selectedCompareCurveIds.size > 0;
+  const hasCurves = compareCurves.length > 0;
+  const allSelected = allCompareCurvesSelected();
+  const canAdd = compareCurves.length < MAX_COMPARE_CURVES;
+  compareControls.selectAllButton.disabled = !hasCurves;
+  compareControls.selectAllButton.textContent = allSelected
+    ? "Clear selection"
+    : "Select all";
+  compareControls.copyButton.disabled = !hasSelection || !canAdd;
+  compareControls.deleteButton.disabled = !hasSelection;
+  compareControls.addButton.disabled = !canAdd;
+}
+
+function cloneCompareCurve(source) {
+  const id = `curve_${++compareCurveNumber}`;
+  const visual = compareVisualDefaults(compareCurveNumber);
+  return {
+    ...source,
+    id,
+    collections: [...compareSelectedCollections(source)],
+    color: visual.color,
+    style: visual.style,
+    options: source.options ? JSON.parse(JSON.stringify(source.options)) : null,
+    optionRequest: 0,
+  };
+}
+
 function renderCompareEntries() {
+  syncCompareCurveUiState();
   compareControls.entries.replaceChildren();
   for (const [index, curve] of compareCurves.entries()) {
     const card = document.createElement("article");
     card.className = "curve-card";
+    const collapsed = collapsedCompareCurveIds.has(curve.id);
+    const isSelected = selectedCompareCurveIds.has(curve.id);
+    card.classList.toggle("collapsed", collapsed);
+    card.classList.toggle("selected", isSelected);
 
     const header = document.createElement("div");
     header.className = "curve-card-header";
+    const selected = document.createElement("input");
+    selected.className = "curve-select";
+    selected.type = "checkbox";
+    selected.dataset.curveId = curve.id;
+    selected.dataset.curveSelect = "";
+    selected.checked = isSelected;
+    const toggle = document.createElement("button");
+    toggle.className = "curve-collapse";
+    toggle.type = "button";
+    toggle.dataset.curveId = curve.id;
+    toggle.dataset.curveToggle = "";
+    toggle.classList.toggle("expanded", !collapsed);
+    toggle.textContent = ">";
+    toggle.title = collapsed ? "Expand curve" : "Collapse curve";
+    toggle.setAttribute("aria-label", toggle.title);
     const title = document.createElement("strong");
     title.textContent = `Curve ${index + 1}`;
     const labelField = compareTextInput(
       curve.id, "label", "Label", curve.label, "Auto label"
     );
     labelField.className = "curve-label-field";
-    header.append(title, makeCurvePreview(curve, "curve-preview"), labelField);
+    header.append(
+      toggle,
+      selected,
+      title,
+      makeCurvePreview(curve, "curve-preview"),
+      labelField
+    );
 
     const fields = document.createElement("div");
     fields.className = "curve-fields";
@@ -375,12 +455,16 @@ function renderCompareEntries() {
     card.append(header, fields);
     compareControls.entries.append(card);
   }
+  updateCompareActionButtons();
 }
 
-function addCompareCurve() {
-  if (compareCurves.length >= 20) return;
+function addCompareCurve(selectNew = true) {
+  if (compareCurves.length >= MAX_COMPARE_CURVES) return;
   const curve = compareCurveDefaults();
   compareCurves.push(curve);
+  if (selectNew) {
+    selectedCompareCurveIds = new Set([curve.id]);
+  }
   renderCompareEntries();
   refreshCompareCurveOptions(curve)
     .then(renderCompareEntries)
@@ -391,25 +475,73 @@ function addCompareCurve() {
 }
 
 function deleteCompareCurve(id) {
-  compareCurves = compareCurves.filter((curve) => curve.id !== id);
-  if (!compareCurves.length) addCompareCurve();
-  else renderCompareEntries();
+  deleteCompareCurves([id]);
 }
 
 function copyCompareCurve(id) {
-  if (compareCurves.length >= 20) return;
-  const source = findCompareCurve(id);
-  if (!source) return;
+  copyCompareCurves([id]);
+}
 
-  const copy = {
-    ...source,
-    id: `curve_${++compareCurveNumber}`,
-    collections: [...compareSelectedCollections(source)],
-    color: comparePalette[(compareCurveNumber - 1) % comparePalette.length].value,
-    options: source.options ? JSON.parse(JSON.stringify(source.options)) : null,
-    optionRequest: 0,
-  };
-  compareCurves.push(copy);
+function deleteCompareCurves(ids) {
+  const idsToDelete = new Set(ids);
+  if (!idsToDelete.size) return;
+
+  compareCurves = compareCurves.filter(
+    (curve) => !idsToDelete.has(curve.id)
+  );
+  for (const id of idsToDelete) {
+    selectedCompareCurveIds.delete(id);
+    collapsedCompareCurveIds.delete(id);
+  }
+
+  if (!compareCurves.length) {
+    compareCurveNumber = 0;
+    addCompareCurve();
+  } else {
+    renderCompareEntries();
+  }
+}
+
+function copyCompareCurves(ids) {
+  const idsToCopy = new Set(ids);
+  if (!idsToCopy.size || compareCurves.length >= MAX_COMPARE_CURVES) return;
+
+  const copies = [];
+  for (const curve of compareCurves) {
+    if (!idsToCopy.has(curve.id)) continue;
+    if (compareCurves.length + copies.length >= MAX_COMPARE_CURVES) break;
+    copies.push(cloneCompareCurve(curve));
+  }
+  if (!copies.length) return;
+
+  compareCurves.push(...copies);
+  selectedCompareCurveIds = new Set(copies.map((curve) => curve.id));
+  renderCompareEntries();
+}
+
+function deleteSelectedCompareCurves() {
+  deleteCompareCurves(selectedCompareCurveIds);
+}
+
+function copySelectedCompareCurves() {
+  copyCompareCurves(selectedCompareCurveIds);
+}
+
+function selectAllCompareCurves() {
+  if (allCompareCurvesSelected()) {
+    selectedCompareCurveIds.clear();
+  } else {
+    selectedCompareCurveIds = new Set(compareCurves.map((curve) => curve.id));
+  }
+  renderCompareEntries();
+}
+
+function toggleCompareCurveCollapsed(id) {
+  if (collapsedCompareCurveIds.has(id)) {
+    collapsedCompareCurveIds.delete(id);
+  } else {
+    collapsedCompareCurveIds.add(id);
+  }
   renderCompareEntries();
 }
 
@@ -486,6 +618,17 @@ async function updateCompareCollections(input) {
 }
 
 async function updateCompareCurve(event) {
+  const curveSelect = event.target.closest("input[data-curve-select]");
+  if (curveSelect) {
+    if (curveSelect.checked) {
+      selectedCompareCurveIds.add(curveSelect.dataset.curveId);
+    } else {
+      selectedCompareCurveIds.delete(curveSelect.dataset.curveId);
+    }
+    updateCompareActionButtons();
+    return;
+  }
+
   const collectionInput = event.target.closest(
     "input[data-compare-collection], input[data-compare-select-all]"
   );
@@ -635,6 +778,8 @@ function onCompareTabShown() {
 }
 
 function onCompareDatabaseChanged() {
+  selectedCompareCurveIds.clear();
+  collapsedCompareCurveIds.clear();
   for (const curve of compareCurves) {
     curve.collections = [];
     curve.options = null;
@@ -649,21 +794,27 @@ function onCompareDatabaseChanged() {
 }
 
 function initializeCompare() {
-  if (!compareCurves.length) addCompareCurve();
+  if (!compareCurves.length) addCompareCurve(false);
   compareControls.entries.addEventListener("input", updateCompareCurve);
   compareControls.entries.addEventListener("change", updateCompareCurve);
   compareControls.entries.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-action='delete']");
-    if (button) {
-      deleteCompareCurve(button.dataset.curveId);
+    const action = event.target.closest("[data-action]");
+    if (action?.dataset.action === "delete") {
+      deleteCompareCurve(action.dataset.curveId);
       return;
     }
-    const copy = event.target.closest("[data-action='copy']");
-    if (copy) {
-      copyCompareCurve(copy.dataset.curveId);
+    if (action?.dataset.action === "copy") {
+      copyCompareCurve(action.dataset.curveId);
+      return;
     }
+
+    const toggle = event.target.closest("button[data-curve-toggle]");
+    if (toggle) toggleCompareCurveCollapsed(toggle.dataset.curveId);
   });
-  compareControls.addButton.addEventListener("click", addCompareCurve);
+  compareControls.selectAllButton.addEventListener("click", selectAllCompareCurves);
+  compareControls.copyButton.addEventListener("click", copySelectedCompareCurves);
+  compareControls.deleteButton.addEventListener("click", deleteSelectedCompareCurves);
+  compareControls.addButton.addEventListener("click", () => addCompareCurve());
   compareControls.runButton.addEventListener("click", runCompare);
   document.addEventListener("click", (event) => {
     const clickedPicker = event.target.closest?.(".compare-collection-picker");

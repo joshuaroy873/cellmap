@@ -259,7 +259,7 @@ The importer:
 PDSCH rows are imported only when:
 
 ```text
-Test Name = Capacity or Ookla(R)
+Test Name = Capacity, Capacity HTTP/FTP, or Ookla(R)
 Direction = Downlink
 Test Status = Completed
 ```
@@ -267,7 +267,7 @@ Test Status = Completed
 PUSCH rows are imported only when:
 
 ```text
-Test Name = Capacity or Ookla(R)
+Test Name = Capacity, Capacity HTTP/FTP, or Ookla(R)
 Direction = Uplink
 Test Status = Completed
 ```

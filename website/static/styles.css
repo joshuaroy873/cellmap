@@ -338,6 +338,13 @@ label {
   scrollbar-gutter: stable;
 }
 
+.compare-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
 .curve-card {
   display: grid;
   gap: 0.55rem;
@@ -348,11 +355,49 @@ label {
   background: #fff;
 }
 
+.curve-card.selected {
+  border-color: #8fc7d6;
+  background: rgba(18, 103, 130, 0.06);
+  box-shadow: 0 0 0 1px rgba(18, 103, 130, 0.12);
+}
+
 .curve-card-header {
   display: grid;
-  grid-template-columns: auto minmax(150px, 0.7fr) minmax(180px, 1fr);
+  grid-template-columns: auto auto auto minmax(110px, 0.55fr) minmax(170px, 1fr);
   gap: 0.65rem;
   align-items: end;
+}
+
+.curve-select {
+  align-self: center;
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.curve-collapse {
+  align-self: center;
+  display: grid;
+  width: 2.05rem;
+  min-height: 2.05rem;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #c9d9e1;
+  border-radius: 6px;
+  background: #f7fbfc;
+  color: var(--accent-dark);
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.curve-collapse:hover {
+  border-color: #8fc7d6;
+  background: #eaf6fa;
+}
+
+.curve-collapse.expanded {
+  transform: rotate(90deg);
 }
 
 .curve-card-header strong {
@@ -366,6 +411,10 @@ label {
 
 .curve-label-field input {
   min-height: 2.1rem;
+}
+
+.curve-card.collapsed .curve-fields {
+  display: none;
 }
 
 .curve-fields {
@@ -407,6 +456,7 @@ label {
   z-index: 1300;
 }
 
+.curve-select-all,
 .curve-copy,
 .curve-delete {
   justify-self: end;
@@ -414,6 +464,12 @@ label {
   padding: 0.35rem 0.55rem;
   font-size: 0.72rem;
   font-weight: 800;
+}
+
+.curve-select-all {
+  border-color: #c9d9e1;
+  background: #f7fbfc;
+  color: var(--accent-dark);
 }
 
 .curve-copy {

@@ -253,22 +253,22 @@ DERIVED_COLUMNS = {
 
 ROW_FILTERS = {
     "lte_pdsch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
         (["direction"], "Downlink"),
         (["test_status"], "Completed"),
     ],
     "nr_pdsch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
         (["direction"], "Downlink"),
         (["test_status"], "Completed"),
     ],
     "lte_pusch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
         (["direction"], "Uplink"),
         (["test_status"], "Completed"),
     ],
     "nr_pusch": [
-        (["test_name"], ("Capacity", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
         (["direction"], "Uplink"),
         (["test_status"], "Completed"),
     ],

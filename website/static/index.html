@@ -7,7 +7,7 @@
   <title>Cellular Measurement Map</title>
   <link rel="preconnect" href="https://a.basemaps.cartocdn.com">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/styles.css?v=20260701-new-features">
+  <link rel="stylesheet" href="/styles.css?v=20260703-compare-toggle-style-cycle">
 </head>
 <body>
   <div class="app">
@@ -153,10 +153,21 @@
             <span class="eyebrow">Compare</span>
             <h1>CDF curves</h1>
           </div>
-          <button id="compare-add" class="add-curve-button" type="button">
-            <span aria-hidden="true">+</span>
-            Add
-          </button>
+          <div class="compare-actions">
+            <button id="compare-select-all" class="curve-select-all" type="button">
+              Select all
+            </button>
+            <button id="compare-copy" class="curve-copy" type="button" disabled>
+              Copy
+            </button>
+            <button id="compare-delete" class="curve-delete" type="button" disabled>
+              Delete
+            </button>
+            <button id="compare-add" class="add-curve-button" type="button">
+              <span aria-hidden="true">+</span>
+              Add
+            </button>
+          </div>
         </div>
 
         <div id="compare-entries" class="compare-entries"></div>
@@ -232,13 +243,13 @@
   </dialog>
 
   <script src="/vendor/leaflet/leaflet.js"></script>
-  <script src="/state.js?v=20260701-new-features"></script>
-  <script src="/api.js?v=20260701-new-features"></script>
-  <script src="/charts.js?v=20260701-new-features"></script>
-  <script src="/filters.js?v=20260701-new-features"></script>
-  <script src="/map_view.js?v=20260701-new-features"></script>
-  <script src="/compare_charts.js?v=20260701-new-features"></script>
-  <script src="/compare_view.js?v=20260701-new-features"></script>
-  <script src="/app.js?v=20260701-new-features"></script>
+  <script src="/state.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/api.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/charts.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/filters.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/map_view.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/compare_charts.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/compare_view.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/app.js?v=20260703-compare-toggle-style-cycle"></script>
 </body>
 </html>

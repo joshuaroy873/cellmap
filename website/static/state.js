@@ -29,6 +29,9 @@ const tabControls = {
 
 const compareControls = {
   addButton: $("compare-add"),
+  selectAllButton: $("compare-select-all"),
+  copyButton: $("compare-copy"),
+  deleteButton: $("compare-delete"),
   runButton: $("compare-run"),
   entries: $("compare-entries"),
   charts: $("compare-charts"),
@@ -67,6 +70,8 @@ let compareCurves = [];
 let compareCurveNumber = 0;
 let compareRequestNumber = 0;
 let comparePayload = null;
+let collapsedCompareCurveIds = new Set();
+let selectedCompareCurveIds = new Set();
 let collectionPopoutState = null;
 
 function setStatus(message) {
