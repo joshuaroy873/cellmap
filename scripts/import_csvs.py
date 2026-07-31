@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -55,6 +56,178 @@ def file_hash(path: Path) -> str:
         for chunk in iter(lambda: file.read(8 * 1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def database_directory(root: Path, database: str) -> Path:
+    """Return a safe direct child directory for a database identifier."""
+    if (
+        not database
+        or database in (".", "..")
+        or "/" in database
+        or "\\" in database
+    ):
+        raise ValueError("database must be a single, non-empty directory name")
+    resolved_root = root.resolve()
+    target = (resolved_root / database).resolve()
+    if target.parent != resolved_root:
+        raise ValueError("database must be a direct child directory name")
+    return target
+
+
+def archived_database_directory(database: str) -> Path:
+    return database_directory(DATA / "_csvs", database)
+
+
+def processed_database_directories(database: str) -> list[Path]:
+    segment = f"database={quote(database, safe='')}"
+    return [
+        database_directory(OUTPUT / kind, segment)
+        for kind in sorted(set(FILE_TYPES.values()))
+    ]
+
+
+def processed_file_keys(
+    con: duckdb.DuckDBPyConnection, source_prefix: str
+) -> list[tuple[object, object, object]]:
+    return [
+        (file_hash, measurement_type, schema_version)
+        for file_hash, measurement_type, schema_version, source_path in con.execute(
+            """
+            SELECT file_hash, measurement_type, schema_version, source_path
+            FROM processed_files
+            """
+        ).fetchall()
+        if str(source_path).startswith(source_prefix)
+    ]
+
+
+def database_deletion_plan(
+    database: str,
+) -> tuple[
+    Path,
+    list[Path],
+    list[str],
+    int,
+    int,
+    list[tuple[object, object, object]],
+]:
+    """Describe the local files and catalog records owned by one database."""
+    archive = archived_database_directory(database)
+    processed = processed_database_directories(database)
+    collections: list[str] = []
+    partition_count = 0
+    row_count = 0
+    file_keys: list[tuple[object, object, object]] = []
+
+    if not DB_PATH.exists():
+        return archive, processed, collections, partition_count, row_count, file_keys
+
+    source_prefix = f"{archive.relative_to(ROOT).as_posix()}/"
+    with duckdb.connect(str(DB_PATH), read_only=True) as con:
+        partition_count, row_count = con.execute(
+            """
+            SELECT count(*), coalesce(sum(row_count), 0)
+            FROM measurement_partitions
+            WHERE database_name = ?
+            """,
+            [database],
+        ).fetchone()
+        collections = [
+            str(collection)
+            for (collection,) in con.execute(
+                """
+                SELECT DISTINCT collection_name
+                FROM measurement_partitions
+                WHERE database_name = ?
+                ORDER BY collection_name
+                """,
+                [database],
+            ).fetchall()
+        ]
+        file_keys = processed_file_keys(con, source_prefix)
+
+    return (
+        archive,
+        processed,
+        collections,
+        int(partition_count),
+        int(row_count),
+        file_keys,
+    )
+
+
+def print_database_deletion_plan(
+    database: str,
+    archive: Path,
+    processed: list[Path],
+    collections: list[str],
+    partition_count: int,
+    row_count: int,
+    file_keys: list[tuple[object, object, object]],
+) -> None:
+    print(f"Database deletion preview: {database}")
+    print(
+        f"  raw archive: {archive.relative_to(ROOT)} "
+        f"({'delete' if archive.exists() else 'not found'})"
+    )
+    for path in processed:
+        if path.exists():
+            print(f"  processed partitions: {path.relative_to(ROOT)} (delete)")
+    if collections:
+        print(f"  collections ({len(collections):,}):")
+        for collection in collections:
+            print(f"    - {collection}")
+    else:
+        print("  collections: none cataloged")
+    print(f"  catalog partitions: {partition_count:,} ({row_count:,} rows)")
+    print(f"  processed-file records: {len(file_keys):,}")
+
+
+def delete_database(database: str) -> None:
+    """Delete one database's archived data, generated partitions, and metadata."""
+    (
+        archive,
+        processed,
+        _collections,
+        partition_count,
+        row_count,
+        file_keys,
+    ) = database_deletion_plan(database)
+    if DB_PATH.exists():
+        source_prefix = f"{archive.relative_to(ROOT).as_posix()}/"
+        with duckdb.connect(str(DB_PATH)) as con:
+            initialize(con)
+            con.execute("BEGIN")
+            try:
+                file_keys = processed_file_keys(con, source_prefix)
+                con.execute(
+                    "DELETE FROM measurement_partitions WHERE database_name = ?",
+                    [database],
+                )
+                for file_hash, measurement_type, schema_version in file_keys:
+                    con.execute(
+                        """
+                        DELETE FROM processed_files
+                        WHERE file_hash = ?
+                          AND measurement_type = ?
+                          AND schema_version = ?
+                        """,
+                        [file_hash, measurement_type, schema_version],
+                    )
+                con.execute("COMMIT")
+            except Exception:
+                con.execute("ROLLBACK")
+                raise
+
+    for path in [archive, *processed]:
+        if path.exists():
+            shutil.rmtree(path)
+            print(f"DELETE directory: {path.relative_to(ROOT)}")
+
+    print(
+        f"Deleted database {database}: {partition_count:,} catalog partitions "
+        f"({row_count:,} rows) and {len(file_keys):,} processed-file records."
+    )
 
 
 def export_time(path: Path) -> datetime:
@@ -413,7 +586,6 @@ def main() -> int:
         "paths",
         nargs="*",
         type=Path,
-        default=[DATA / "_csvs"],
         help="CSV file or export directory; defaults to data/_csvs",
     )
     parser.add_argument(
@@ -421,10 +593,42 @@ def main() -> int:
         action="store_true",
         help="recheck files even when their raw SHA-256 hash is already cataloged",
     )
+    parser.add_argument(
+        "--delete-database",
+        metavar="DATABASE",
+        help=(
+            "preview deletion of one database's archived CSVs, generated "
+            "Parquet, and catalog records"
+        ),
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="perform the requested database deletion without another prompt",
+    )
     args = parser.parse_args()
 
+    if args.delete_database:
+        if args.paths:
+            parser.error("paths cannot be used with --delete-database")
+        if args.force:
+            parser.error("--force cannot be used with --delete-database")
+        try:
+            plan = database_deletion_plan(args.delete_database)
+        except ValueError as error:
+            parser.error(str(error))
+        print_database_deletion_plan(args.delete_database, *plan)
+        if not args.yes:
+            print("No files were deleted. Re-run with --yes to confirm.")
+            return 0
+        delete_database(args.delete_database)
+        return 0
+
+    if args.yes:
+        parser.error("--yes can only be used with --delete-database")
+
     paths = []
-    for item in args.paths:
+    for item in args.paths or [DATA / "_csvs"]:
         if item.is_file():
             if is_temp_path(item.resolve()):
                 print(f"SKIP temp staging file: {item.relative_to(ROOT)}")

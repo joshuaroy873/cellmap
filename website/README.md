@@ -115,3 +115,15 @@ session-paused overlay. Refreshing starts a new browser session.
 
 Close the website server before running `scripts/import_csvs.py` if DuckDB
 reports a write lock.
+
+The importer can also remove a complete local database. Stop the server first,
+preview the removal with:
+
+```bash
+python scripts/import_csvs.py --delete-database <database>
+```
+
+The preview lists every catalog collection. Then add `--yes` only when ready to
+permanently remove that database's archive, generated partitions, and catalog
+metadata. The [scripts guide](../scripts/README.md#delete-a-database) describes
+the full scope.

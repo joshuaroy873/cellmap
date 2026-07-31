@@ -89,6 +89,35 @@ python scripts/import_csvs.py --force
 python scripts/import_csvs.py --force data/_csvs/<database>/<date>
 ```
 
+## Delete a Database
+
+Preview the removal of one database:
+
+```bash
+python scripts/import_csvs.py --delete-database <database>
+```
+
+The preview lists every catalog collection plus the archive directory, generated
+Parquet partitions, and DuckDB records that belong to the database. It does not
+delete anything.
+
+To permanently remove that database, explicitly confirm it:
+
+```bash
+python scripts/import_csvs.py --delete-database <database> --yes
+```
+
+This removes only:
+
+- `data/_csvs/<database>/` and its archived CSVs;
+- matching generated partition directories in `data/_processed/measurements/`;
+- matching `measurement_partitions` records and `processed_files` records whose
+  source path is inside that archive directory.
+
+It does not delete `data/_temp/`, the shared `cellular.duckdb` file, or another
+database. The database name must be a single directory name; close the website
+before running the confirmed deletion if DuckDB reports a lock.
+
 Initialize the catalog without importing:
 
 ```bash
