@@ -10,6 +10,7 @@ const controls = {
   collectionSummary: $("collection-summary"),
   start: $("start-time"),
   end: $("end-time"),
+  share: $("share-view"),
   measurement: $("measurement"),
   technology: $("technology"),
   operator: $("operator"),

@@ -41,6 +41,7 @@ website/static/map_view.js Leaflet map and selected-point details
 website/static/charts.js   summary, time-series, and CDF drawing
 website/static/compare_view.js   Compare-tab curve builder
 website/static/compare_charts.js Compare-tab grouped CDF charts
+website/static/share_view.js     shared Map-view links
 website/static/app.js      page initialization and event wiring
 website/compare_api.py     batch CDF API for the Compare tab
 ```
@@ -59,6 +60,8 @@ GET /api/options
 GET /api/measurements
 GET /api/cdf
 POST /api/compare/cdf
+POST /api/shared-views
+GET /api/shared-views/<id>
 ```
 
 The API accepts predefined measurement types, metrics, and filters only.
@@ -102,6 +105,11 @@ The time-series query is skipped until one operator is selected.
 
 The CDF modal is drawn in browser canvas from `/api/cdf`.
 It shows P5, median, and P95 in the header and chart callouts.
+
+The Share button saves the current Map database, selected collections, time
+range, and filters as a small record in DuckDB. It copies a short `?share=`
+link that restores the same Map view for someone using the same server and
+catalog. A shared link does not include measurement data.
 
 The Compare tab does not use the top collection selector. Each compare curve
 has its own collection, measurement/metric, color, line style, and radio

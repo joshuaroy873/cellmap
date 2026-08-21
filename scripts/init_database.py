@@ -39,6 +39,12 @@ def initialize(con: duckdb.DuckDBPyConnection) -> None:
             PRIMARY KEY (file_hash, measurement_type, schema_version)
         );
 
+        CREATE TABLE IF NOT EXISTS shared_views (
+            id VARCHAR PRIMARY KEY,
+            state_json VARCHAR NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+        );
+
         ALTER TABLE measurement_partitions
             ADD COLUMN IF NOT EXISTS schema_version INTEGER DEFAULT 1;
         ALTER TABLE measurement_partitions

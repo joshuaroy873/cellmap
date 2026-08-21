@@ -21,6 +21,7 @@ function updateCdfButton() {
     selectedCollections().length &&
     controls.metric.value
   );
+  updateShareButton();
 }
 
 function currentDatabase() {

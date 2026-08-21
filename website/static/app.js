@@ -69,6 +69,7 @@ async function afterCompareCollectionScopeSelectionChanged() {
 }
 
 async function applyMapCollectionSelection(collections) {
+  markSharedViewChanged();
   const selected = new Set(collections);
   for (const input of collectionInputs()) {
     input.checked = selected.has(input.value);
@@ -91,8 +92,13 @@ async function initialize() {
     applyCollectionRange();
     resetFilterOptions();
     initializeCompare();
-    showSelectionPrompt("Select database and collection");
-    setStatus("Select database and collection");
+    const sharedView = await loadSharedViewFromLocation();
+    if (sharedView) {
+      await restoreSharedView(sharedView);
+    } else {
+      showSelectionPrompt("Select database and collection");
+      setStatus("Select database and collection");
+    }
   } catch (error) {
     setStatus("Initialization failed");
     setMapMessage(error.message);
@@ -101,6 +107,7 @@ async function initialize() {
 
 function setActiveTab(tab) {
   activeTab = tab;
+  updateShareButton();
   document.body.dataset.tab = tab;
   tabControls.mapPanel.hidden = tab !== "map";
   tabControls.comparePanel.hidden = tab !== "compare";
@@ -260,4 +267,5 @@ window.addEventListener("resize", () => {
 
 document.body.dataset.tab = activeTab;
 initializeCollectionPopout();
+initializeSharedViews();
 initialize();

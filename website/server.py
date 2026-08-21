@@ -7,6 +7,8 @@ import argparse
 import gzip
 import json
 import mimetypes
+import re
+import secrets
 import sys
 from datetime import date, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -27,6 +29,7 @@ from cellmap_schema import (  # noqa: E402
     NULL_FILTER_VALUE,
 )
 from compare_api import compare_cdf_payload  # noqa: E402
+from scripts.init_database import initialize as initialize_catalog  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
@@ -34,6 +37,146 @@ MEASUREMENTS = ROOT / "data/_processed/measurements"
 MAX_POINTS = 6_000
 MAX_SERIES_POINTS = 500
 MAX_CDF_POINTS = 400
+SHARED_VIEW_ID = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
+MAX_SHARED_VIEW_COLLECTIONS = 1_000
+MAX_SHARED_VIEW_VALUE_LENGTH = 512
+
+
+def shared_string(value: object, label: str, required: bool = False) -> str | None:
+    if value is None:
+        if required:
+            raise ValueError(f"Shared view needs {label}")
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"Shared view {label} must be text")
+    normalized = value.strip()
+    if not normalized:
+        if required:
+            raise ValueError(f"Shared view needs {label}")
+        return None
+    if len(normalized) > MAX_SHARED_VIEW_VALUE_LENGTH:
+        raise ValueError(f"Shared view {label} is too long")
+    return normalized
+
+
+def shared_time(value: object, label: str) -> str | None:
+    normalized = shared_string(value, label)
+    if normalized is None:
+        return None
+    try:
+        datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise ValueError(f"Shared view {label} is not a valid date and time") from error
+    return normalized
+
+
+def shared_filter(
+    state: dict[str, object], name: str, default: str = "all"
+) -> str:
+    return shared_string(state.get(name, default), name) or default
+
+
+def normalize_shared_view_state(request: dict[str, object]) -> dict[str, object]:
+    state = request.get("state")
+    if not isinstance(state, dict):
+        raise ValueError("Shared view state is required")
+
+    database = shared_string(state.get("database"), "database", required=True)
+    source_collections = state.get("collections")
+    if not isinstance(source_collections, list) or not source_collections:
+        raise ValueError("Shared view needs at least one collection")
+    if len(source_collections) > MAX_SHARED_VIEW_COLLECTIONS:
+        raise ValueError(
+            f"Shared view supports up to {MAX_SHARED_VIEW_COLLECTIONS:,} collections"
+        )
+    collections = []
+    for value in source_collections:
+        collection = shared_string(value, "collection", required=True)
+        if collection not in collections:
+            collections.append(collection)
+
+    measurement = shared_string(
+        state.get("measurement"), "measurement", required=True
+    )
+    validate_choice(measurement, CATEGORY_TYPES, "measurement type")
+    metric = shared_string(state.get("metric"), "metric", required=True)
+    validate_choice(metric, METRICS[measurement], "metric")
+
+    technology = shared_filter(state, "technology")
+    if technology not in ("all", "LTE", "NR"):
+        raise ValueError(f"Unknown technology: {technology}")
+
+    start = shared_time(state.get("start"), "start time")
+    end = shared_time(state.get("end"), "end time")
+    if start and end and datetime.fromisoformat(start) > datetime.fromisoformat(end):
+        raise ValueError("Shared view start time must be before end time")
+
+    return {
+        "version": 1,
+        "database": database,
+        "collections": collections,
+        "start": start,
+        "end": end,
+        "measurement": measurement,
+        "technology": technology,
+        "operator": shared_filter(state, "operator"),
+        "band": shared_filter(state, "band"),
+        "pci": shared_filter(state, "pci"),
+        "ssb": shared_filter(state, "ssb"),
+        "metric": metric,
+    }
+
+
+def create_shared_view_payload(request: dict[str, object]) -> dict[str, object]:
+    state = normalize_shared_view_state(request)
+    if not DB_PATH.exists():
+        raise FileNotFoundError("Run scripts/import_csvs.py before sharing a view")
+
+    encoded_state = json.dumps(state, separators=(",", ":"))
+    with duckdb.connect(str(DB_PATH)) as con:
+        initialize_catalog(con)
+        for _ in range(5):
+            identifier = secrets.token_urlsafe(16)
+            try:
+                con.execute(
+                    "INSERT INTO shared_views (id, state_json) VALUES (?, ?)",
+                    [identifier, encoded_state],
+                )
+            except duckdb.ConstraintException:
+                continue
+            return {"id": identifier, "state": state}
+    raise RuntimeError("Could not create a unique shared-view link")
+
+
+def shared_view_payload(identifier: str) -> dict[str, object]:
+    if not SHARED_VIEW_ID.fullmatch(identifier):
+        raise ValueError("Invalid shared-view link")
+    with open_catalog() as con:
+        table = con.execute("""
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = 'shared_views'
+        """).fetchone()
+        if table is None:
+            raise LookupError("Shared view was not found")
+        row = con.execute(
+            """
+            SELECT state_json
+            FROM shared_views
+            WHERE id = ?
+            """,
+            [identifier],
+        ).fetchone()
+    if row is None:
+        raise LookupError("Shared view was not found")
+    (state_json,) = row
+    try:
+        state = json.loads(state_json)
+    except json.JSONDecodeError as error:
+        raise ValueError("Shared view contains invalid saved state") from error
+    if not isinstance(state, dict):
+        raise ValueError("Shared view contains invalid saved state")
+    return {"id": identifier, "state": state}
 
 
 def json_default(value: object) -> object:
@@ -662,6 +805,35 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = measurement_payload(query)
             elif parsed.path == "/api/cdf":
                 payload = cdf_payload(query)
+            elif parsed.path.startswith("/api/shared-views/"):
+                identifier = parsed.path.removeprefix("/api/shared-views/")
+                if not identifier or "/" in identifier:
+                    self.send_json({"error": "Unknown API endpoint"}, status=404)
+                    return
+                payload = shared_view_payload(identifier)
+            else:
+                self.send_json({"error": "Unknown API endpoint"}, status=404)
+                return
+            self.send_json(payload)
+        except ValueError as error:
+            self.send_json({"error": str(error)}, status=400)
+        except FileNotFoundError as error:
+            self.send_json({"error": str(error)}, status=503)
+        except LookupError as error:
+            self.send_json({"error": str(error)}, status=404)
+        except Exception as error:
+            self.log_error("%s", error)
+            self.send_json({"error": "The measurement query failed"}, status=500)
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path == "/api/compare/cdf":
+                payload = compare_cdf_payload(
+                    self.read_json_body(), ROOT, DB_PATH, MEASUREMENTS
+                )
+            elif parsed.path == "/api/shared-views":
+                payload = create_shared_view_payload(self.read_json_body())
             else:
                 self.send_json({"error": "Unknown API endpoint"}, status=404)
                 return
@@ -672,26 +844,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json({"error": str(error)}, status=503)
         except Exception as error:
             self.log_error("%s", error)
-            self.send_json({"error": "The measurement query failed"}, status=500)
-
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        if parsed.path != "/api/compare/cdf":
-            self.send_json({"error": "Unknown API endpoint"}, status=404)
-            return
-
-        try:
-            payload = compare_cdf_payload(
-                self.read_json_body(), ROOT, DB_PATH, MEASUREMENTS
-            )
-            self.send_json(payload)
-        except ValueError as error:
-            self.send_json({"error": str(error)}, status=400)
-        except FileNotFoundError as error:
-            self.send_json({"error": str(error)}, status=503)
-        except Exception as error:
-            self.log_error("%s", error)
-            self.send_json({"error": "The compare query failed"}, status=500)
+            self.send_json({"error": "The request failed"}, status=500)
 
     def read_json_body(self) -> dict[str, object]:
         length = int(self.headers.get("Content-Length", "0") or "0")

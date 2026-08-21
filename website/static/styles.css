@@ -208,7 +208,7 @@ label {
   position: relative;
   z-index: 1001;
   display: grid;
-  grid-template-columns: minmax(245px, 1.2fr) repeat(4, minmax(145px, 0.8fr)) auto;
+  grid-template-columns: minmax(245px, 1.2fr) repeat(4, minmax(145px, 0.8fr)) auto auto;
   gap: 0.8rem;
   align-items: end;
   padding: 0.75rem 1rem;
@@ -654,6 +654,12 @@ h2 {
   background: var(--soft);
   color: var(--accent-dark);
   font-weight: 700;
+}
+
+.share-button {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
 }
 
 .filter-note {
