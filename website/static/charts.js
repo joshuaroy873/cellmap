@@ -132,6 +132,18 @@ function setTimeSeriesAvailable(available) {
   }
 }
 
+function redrawTimeSeries() {
+  if (activeTab === "map" && lastMapPayload && controls.operator.value !== "all") {
+    drawChart(lastMapPayload);
+  }
+}
+
+function seriesTimestamp(value) {
+  // Database timestamps are timezone-naive; keep their clock values across DST.
+  const normalized = value.replace(" ", "T");
+  return Date.parse(/[zZ]|[+-]\d\d:\d\d$/.test(normalized) ? normalized : `${normalized}Z`);
+}
+
 function drawChart(payload) {
   const canvas = $("chart");
   const context = canvas.getContext("2d");
@@ -152,8 +164,11 @@ function drawChart(payload) {
   const minimum = Math.min(...data.map((item) => item.minimum));
   const maximum = Math.max(...data.map((item) => item.maximum));
   const span = maximum - minimum || 1;
+  const times = data.map((item) => seriesTimestamp(item.time));
+  const firstTime = times[0];
+  const duration = times.at(-1) - firstTime;
   const x = (index) =>
-    margin.left + (index / Math.max(1, data.length - 1)) * plotWidth;
+    margin.left + (duration ? (times[index] - firstTime) / duration : 0.5) * plotWidth;
   const y = (value) =>
     margin.top + (1 - (value - minimum) / span) * plotHeight;
 
@@ -199,12 +214,17 @@ function drawChart(payload) {
 
   context.fillStyle = "#657180";
   context.textAlign = "center";
-  const timeIndexes = [0, Math.floor((data.length - 1) / 2), data.length - 1];
-  for (const index of timeIndexes) {
-    const time = new Date(data[index].time);
+  const multiDay = new Date(firstTime).toISOString().slice(0, 10)
+    !== new Date(times.at(-1)).toISOString().slice(0, 10);
+  for (const fraction of duration ? [0, 0.5, 1] : [0.5]) {
+    const time = new Date(firstTime + duration * fraction);
+    context.textAlign = fraction === 0 ? "left" : fraction === 1 ? "right" : "center";
     context.fillText(
-      time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      x(index),
+      time.toLocaleString([], {
+        timeZone: "UTC", hour: "2-digit", minute: "2-digit",
+        ...(multiDay ? { month: "short", day: "numeric" } : {}),
+      }),
+      margin.left + fraction * plotWidth,
       height - 6
     );
   }

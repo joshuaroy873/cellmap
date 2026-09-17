@@ -18,7 +18,7 @@ async function readJSONResponse(response) {
   return payload;
 }
 
-async function getJSON(path, params = {}) {
+async function getJSON(path, params = {}, signal) {
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => {
     const values = Array.isArray(value) ? value : [value];
@@ -28,15 +28,16 @@ async function getJSON(path, params = {}) {
       }
     }
   });
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   return readJSONResponse(response);
 }
 
-async function postJSON(path, payload) {
+async function postJSON(path, payload, signal) {
   const response = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal,
   });
   return readJSONResponse(response);
 }

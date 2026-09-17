@@ -5,14 +5,19 @@ from __future__ import annotations
 
 import argparse
 import gzip
+import hashlib
+import io
 import json
 import mimetypes
 import os
 import re
 import secrets
 import shlex
+import sqlite3
 import sys
+from contextlib import closing
 from datetime import date, datetime
+from functools import lru_cache
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -31,10 +36,9 @@ from cellmap_schema import (  # noqa: E402
     NULL_FILTER_VALUE,
 )
 from compare_api import compare_cdf_payload  # noqa: E402
-from scripts.init_database import initialize as initialize_catalog  # noqa: E402
-
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
+SHARE_DB_PATH = ROOT / "data/_processed/shared_views.sqlite3"
 MEASUREMENTS = ROOT / "data/_processed/measurements"
 MAX_POINTS = 6_000
 MAX_SERIES_POINTS = 500
@@ -161,8 +165,7 @@ def create_shared_view_payload(request: dict[str, object]) -> dict[str, object]:
         raise FileNotFoundError("Run scripts/import_csvs.py before sharing a view")
 
     encoded_state = json.dumps(state, separators=(",", ":"))
-    with duckdb.connect(str(DB_PATH)) as con:
-        initialize_catalog(con)
+    with closing(sqlite3.connect(SHARE_DB_PATH, timeout=10)) as con:
         for _ in range(5):
             identifier = secrets.token_urlsafe(16)
             try:
@@ -170,31 +173,38 @@ def create_shared_view_payload(request: dict[str, object]) -> dict[str, object]:
                     "INSERT INTO shared_views (id, state_json) VALUES (?, ?)",
                     [identifier, encoded_state],
                 )
-            except duckdb.ConstraintException:
+            except sqlite3.IntegrityError:
                 continue
+            con.commit()
             return {"id": identifier, "state": state}
     raise RuntimeError("Could not create a unique shared-view link")
+
+
+def initialize_share_store() -> None:
+    SHARE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(SHARE_DB_PATH, timeout=10)) as con:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS shared_views (
+                id TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        con.commit()
 
 
 def shared_view_payload(identifier: str) -> dict[str, object]:
     if not SHARED_VIEW_ID.fullmatch(identifier):
         raise ValueError("Invalid shared-view link")
-    with open_catalog() as con:
-        table = con.execute("""
-            SELECT 1
-            FROM information_schema.tables
-            WHERE table_schema = 'main' AND table_name = 'shared_views'
-        """).fetchone()
-        if table is None:
-            raise LookupError("Shared view was not found")
-        row = con.execute(
-            """
-            SELECT state_json
-            FROM shared_views
-            WHERE id = ?
-            """,
-            [identifier],
-        ).fetchone()
+    row = None
+    if SHARE_DB_PATH.exists():
+        with closing(sqlite3.connect(SHARE_DB_PATH, timeout=10)) as con:
+            row = con.execute(
+                "SELECT state_json FROM shared_views WHERE id = ?", [identifier]
+            ).fetchone()
+    if row is None:
+        row = legacy_shared_view(identifier)
     if row is None:
         raise LookupError("Shared view was not found")
     (state_json,) = row
@@ -205,6 +215,26 @@ def shared_view_payload(identifier: str) -> dict[str, object]:
     if not isinstance(state, dict):
         raise ValueError("Shared view contains invalid saved state")
     return {"id": identifier, "state": state}
+
+
+def legacy_shared_view(identifier: str) -> tuple | None:
+    """Keep existing links readable without opening the measurement catalog for writes."""
+    with open_catalog() as con:
+        table = con.execute("""
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'main' AND table_name = 'shared_views'
+        """).fetchone()
+        if table is None:
+            return None
+        return con.execute(
+            """
+            SELECT state_json
+            FROM shared_views
+            WHERE id = ?
+            """,
+            [identifier],
+        ).fetchone()
 
 
 def json_default(value: object) -> object:
@@ -811,6 +841,40 @@ def cdf_payload(query: dict[str, list[str]]) -> dict[str, object]:
     }
 
 
+@lru_cache(maxsize=64)
+def cached_asset(path: str, modified: int, size: int) -> tuple[bytes, bytes, str]:
+    body = Path(path).read_bytes()
+    return body, gzip.compress(body, compresslevel=5), hashlib.sha256(body).hexdigest()[:16]
+
+
+def asset_content(path: Path) -> tuple[bytes, bytes, str]:
+    stat = path.stat()
+    return cached_asset(str(path), stat.st_mtime_ns, stat.st_size)
+
+
+def versioned_html() -> bytes:
+    html = asset_content(STATIC / "index.html")[0].decode("utf-8")
+
+    def version(match: re.Match) -> str:
+        url = match.group(2)
+        digest = asset_content(STATIC / url.lstrip("/"))[2]
+        return f'{match.group(1)}{url}?v={digest}"'
+
+    return re.sub(r'((?:src|href)=")(/[^"?]+\.(?:js|css))(?:\?[^"\s]*)?"', version, html).encode()
+
+
+def accepts_gzip(value: str) -> bool:
+    for item in value.split(","):
+        encoding, *parameters = item.strip().lower().split(";")
+        if encoding != "gzip":
+            continue
+        try:
+            return all(float(p.strip()[2:]) > 0 for p in parameters if p.strip().startswith("q="))
+        except ValueError:
+            return False
+    return False
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, directory=str(STATIC), **kwargs)
@@ -818,7 +882,6 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
-            self.path = parsed.path
             return super().do_GET()
 
         try:
@@ -895,7 +958,7 @@ class Handler(SimpleHTTPRequestHandler):
         body = json.dumps(
             payload, default=json_default, separators=(",", ":")
         ).encode()
-        use_gzip = "gzip" in self.headers.get("Accept-Encoding", "") and len(body) > 1024
+        use_gzip = accepts_gzip(self.headers.get("Accept-Encoding", "")) and len(body) > 1024
         if use_gzip:
             body = gzip.compress(body, compresslevel=5)
 
@@ -909,12 +972,42 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_head(self):
+        parsed = urlparse(self.path)
+        path = Path(self.translate_path(parsed.path))
+        is_index = parsed.path in ("/", "/index.html")
+        if not is_index and (path.suffix not in (".js", ".css") or not path.is_file()):
+            return super().send_head()
+        if is_index:
+            body = versioned_html()
+            compressed = gzip.compress(body, compresslevel=5)
+            digest = hashlib.sha256(body).hexdigest()[:16]
+            cache_control = "no-cache"
+            content_type = "text/html; charset=utf-8"
+        else:
+            body, compressed, digest = asset_content(path)
+            version = parse_qs(parsed.query).get("v", [None])[0]
+            cache_control = "public, max-age=31536000, immutable" if version == digest else "no-cache"
+            content_type = self.guess_type(str(path))
+        use_gzip = accepts_gzip(self.headers.get("Accept-Encoding", ""))
+        etag = f'"{digest}-{"gzip" if use_gzip else "identity"}"'
+        not_modified = etag in [value.strip() for value in self.headers.get("If-None-Match", "").split(",")]
+        self.send_response(304 if not_modified else 200)
+        self.send_header("Cache-Control", cache_control)
+        self.send_header("ETag", etag)
+        self.send_header("Vary", "Accept-Encoding")
+        if not_modified:
+            self.end_headers()
+            return None
+        body = compressed if use_gzip else body
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        if use_gzip:
+            self.send_header("Content-Encoding", "gzip")
+        self.end_headers()
+        return io.BytesIO(body)
+
     def end_headers(self) -> None:
-        if (
-            not self.path.startswith("/api/")
-            and self.path.endswith(("/", ".html", ".css", ".js"))
-        ):
-            self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         super().end_headers()
@@ -929,6 +1022,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
+    initialize_share_store()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Cellular map: http://{args.host}:{args.port}")
     try:

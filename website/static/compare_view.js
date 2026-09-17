@@ -33,6 +33,28 @@ const compareResetAfter = {
 let compareOpenCollectionCurve = null;
 const compareCollectionScroll = {};
 
+function invalidateCompareResults() {
+  const hadResults = comparePayload || compareRunPending;
+  compareRequestNumber += 1;
+  compareController?.abort();
+  compareRunPending = false;
+  comparePayload = null;
+  clearCompareCharts();
+  compareControls.summary.textContent = "";
+  if (hadResults) {
+    showCompareMessage("Settings changed. Run compare to update.");
+    if (activeTab === "compare") setStatus("Configure compare curves");
+  }
+  updateCompareActionButtons();
+}
+
+function cancelCompareOptions(curve) {
+  curve.optionRequest += 1;
+  curve.optionController?.abort();
+  curve.optionsPending = false;
+  curve.optionsKey = "";
+}
+
 function compareVisualDefaults(curveNumber) {
   const visualIndex = curveNumber - 1;
   const color = comparePalette[visualIndex % comparePalette.length].value;
@@ -266,13 +288,13 @@ function keepCompareMetric(curve, items) {
 }
 
 async function refreshCompareCurveOptions(curve) {
-  const request = curve.optionRequest + 1;
-  curve.optionRequest = request;
   const collections = compareSelectedCollections(curve);
 
   if (!controls.database.value || !collections.length) {
+    cancelCompareOptions(curve);
     curve.options = null;
     keepCompareMetric(curve, compareMetricCatalog(curve.measurement));
+    updateCompareActionButtons();
     return;
   }
 
@@ -286,16 +308,41 @@ async function refreshCompareCurveOptions(curve) {
     pci: curve.pci,
     ssb: curve.ssb,
   };
-  const payload = await getJSON("/api/options", params);
-  if (curve.optionRequest !== request) return;
-
-  curve.options = payload;
-  keepCompareSelection(curve, "technology", payload.technologies);
-  keepCompareSelection(curve, "operator", payload.operators);
-  keepCompareSelection(curve, "band", payload.bands);
-  keepCompareSelection(curve, "pci", payload.pcis);
-  keepCompareSelection(curve, "ssb", payload.ssb_indexes);
-  keepCompareMetric(curve, payload.metrics);
+  const key = JSON.stringify(params);
+  if (curve.options && curve.optionsKey === key) {
+    curve.optionRequest += 1;
+    curve.optionController?.abort();
+    curve.optionsPending = false;
+    updateCompareActionButtons();
+    return;
+  }
+  const request = ++curve.optionRequest;
+  curve.optionController?.abort();
+  curve.optionController = new AbortController();
+  curve.optionsPending = true;
+  updateCompareActionButtons();
+  try {
+    const payload = await getJSON("/api/options", params, curve.optionController.signal);
+    if (curve.optionRequest !== request || findCompareCurve(curve.id) !== curve) return;
+    curve.options = payload;
+    keepCompareSelection(curve, "technology", payload.technologies);
+    keepCompareSelection(curve, "operator", payload.operators);
+    keepCompareSelection(curve, "band", payload.bands);
+    keepCompareSelection(curve, "pci", payload.pcis);
+    keepCompareSelection(curve, "ssb", payload.ssb_indexes);
+    keepCompareMetric(curve, payload.metrics);
+    for (const field of ["technology", "operator", "band", "pci", "ssb"]) {
+      params[field] = curve[field];
+    }
+    curve.optionsKey = JSON.stringify(params);
+  } catch (error) {
+    if (curve.optionRequest === request && error.name !== "AbortError") throw error;
+  } finally {
+    if (curve.optionRequest === request) {
+      curve.optionsPending = false;
+      updateCompareActionButtons();
+    }
+  }
 }
 
 async function refreshAllCompareOptions() {
@@ -319,6 +366,8 @@ function allCompareCurvesSelected() {
 }
 
 function updateCompareActionButtons() {
+  compareControls.runButton.disabled = compareRunPending
+    || compareCurves.some((curve) => curve.optionsPending);
   const hasSelection = selectedCompareCurveIds.size > 0;
   const hasCurves = compareCurves.length > 0;
   const allSelected = allCompareCurvesSelected();
@@ -343,17 +392,50 @@ function cloneCompareCurve(source) {
     style: visual.style,
     options: source.options ? JSON.parse(JSON.stringify(source.options)) : null,
     optionRequest: 0,
+    optionController: null,
+    optionsPending: false,
+    optionsKey: source.optionsPending ? "" : source.optionsKey,
   };
+}
+
+function compareCardSignature(curve) {
+  return JSON.stringify([
+    curve.collections, curve.measurement, curve.metric,
+    curve.technology, curve.operator, curve.band, curve.pci, curve.ssb,
+    curve.color, curve.style, selectedCollections(),
+  ]);
 }
 
 function renderCompareEntries() {
   syncCompareCurveUiState();
-  compareControls.entries.replaceChildren();
+  const existing = new Map([...compareControls.entries.children]
+    .map((card) => [card.dataset.curveId, card]));
+  for (const [id, card] of existing) {
+    if (!findCompareCurve(id)) card.remove();
+  }
   for (const [index, curve] of compareCurves.entries()) {
-    const card = document.createElement("article");
-    card.className = "curve-card";
     const collapsed = collapsedCompareCurveIds.has(curve.id);
     const isSelected = selectedCompareCurveIds.has(curve.id);
+    const signature = compareCardSignature(curve);
+    const previous = existing.get(curve.id);
+    if (previous && previous.renderSignature === signature
+        && previous.renderOptions === curve.options
+        && (collapsed || previous.querySelector(".curve-fields"))) {
+      previous.classList.toggle("collapsed", collapsed);
+      previous.classList.toggle("selected", isSelected);
+      previous.querySelector(".curve-select").checked = isSelected;
+      previous.querySelector("strong").textContent = `Curve ${index + 1}`;
+      const toggle = previous.querySelector(".curve-collapse");
+      toggle.classList.toggle("expanded", !collapsed);
+      toggle.title = collapsed ? "Expand curve" : "Collapse curve";
+      toggle.setAttribute("aria-label", toggle.title);
+      continue;
+    }
+    const card = document.createElement("article");
+    card.className = "curve-card";
+    card.dataset.curveId = curve.id;
+    card.renderSignature = signature;
+    card.renderOptions = curve.options;
     card.classList.toggle("collapsed", collapsed);
     card.classList.toggle("selected", isSelected);
 
@@ -387,6 +469,12 @@ function renderCompareEntries() {
       makeCurvePreview(curve, "curve-preview"),
       labelField
     );
+
+    card.append(header);
+    if (previous) previous.replaceWith(card);
+    else compareControls.entries.append(card);
+    // Build hidden filter controls only when the curve is expanded.
+    if (collapsed) continue;
 
     const fields = document.createElement("div");
     fields.className = "curve-fields";
@@ -452,14 +540,14 @@ function renderCompareEntries() {
     row4.append(copy, remove);
 
     fields.append(row1, row2, row3, row4);
-    card.append(header, fields);
-    compareControls.entries.append(card);
+    card.append(fields);
   }
   updateCompareActionButtons();
 }
 
 function addCompareCurve(selectNew = true) {
   if (compareCurves.length >= MAX_COMPARE_CURVES) return;
+  invalidateCompareResults();
   const curve = compareCurveDefaults();
   compareCurves.push(curve);
   if (selectNew) {
@@ -485,6 +573,10 @@ function copyCompareCurve(id) {
 function deleteCompareCurves(ids) {
   const idsToDelete = new Set(ids);
   if (!idsToDelete.size) return;
+  invalidateCompareResults();
+  for (const curve of compareCurves) {
+    if (idsToDelete.has(curve.id)) cancelCompareOptions(curve);
+  }
 
   compareCurves = compareCurves.filter(
     (curve) => !idsToDelete.has(curve.id)
@@ -492,10 +584,10 @@ function deleteCompareCurves(ids) {
   for (const id of idsToDelete) {
     selectedCompareCurveIds.delete(id);
     collapsedCompareCurveIds.delete(id);
+    delete compareCollectionScroll[id];
   }
 
   if (!compareCurves.length) {
-    compareCurveNumber = 0;
     addCompareCurve();
   } else {
     renderCompareEntries();
@@ -514,9 +606,11 @@ function copyCompareCurves(ids) {
   }
   if (!copies.length) return;
 
+  invalidateCompareResults();
   compareCurves.push(...copies);
   selectedCompareCurveIds = new Set(copies.map((curve) => curve.id));
   renderCompareEntries();
+  refreshVisibleCompareOptions();
 }
 
 function deleteSelectedCompareCurves() {
@@ -581,6 +675,7 @@ function pruneCompareCollectionsToScope() {
 async function applyCompareCollectionSelection(curveId, collections) {
   const curve = findCompareCurve(curveId);
   if (!curve) return;
+  invalidateCompareResults();
   const entriesScrollTop = compareControls.entries.scrollTop;
   rememberCompareCollectionScroll(curve.id);
 
@@ -620,12 +715,13 @@ async function updateCompareCollections(input) {
 async function updateCompareCurve(event) {
   const curveSelect = event.target.closest("input[data-curve-select]");
   if (curveSelect) {
+    if (event.type !== "change") return;
     if (curveSelect.checked) {
       selectedCompareCurveIds.add(curveSelect.dataset.curveId);
     } else {
       selectedCompareCurveIds.delete(curveSelect.dataset.curveId);
     }
-    updateCompareActionButtons();
+    renderCompareEntries();
     return;
   }
 
@@ -633,6 +729,7 @@ async function updateCompareCurve(event) {
     "input[data-compare-collection], input[data-compare-select-all]"
   );
   if (collectionInput) {
+    if (event.type !== "change") return;
     await updateCompareCollections(collectionInput);
     return;
   }
@@ -644,6 +741,7 @@ async function updateCompareCurve(event) {
 
   const curve = findCompareCurve(target.dataset.curveId);
   if (!curve) return;
+  invalidateCompareResults();
 
   const field = target.dataset.field;
   if (field === "plot") {
@@ -697,6 +795,7 @@ function compareRequestCurves() {
 }
 
 async function runCompare() {
+  if (compareCurves.some((curve) => curve.optionsPending)) return;
   if (!controls.database.value) {
     compareControls.message.hidden = false;
     compareControls.message.textContent = "Select a database first.";
@@ -712,11 +811,15 @@ async function runCompare() {
   }
 
   const request = ++compareRequestNumber;
-  compareControls.runButton.disabled = true;
+  compareController?.abort();
+  compareController = new AbortController();
+  compareRunPending = true;
+  comparePayload = null;
+  updateCompareActionButtons();
   compareControls.message.hidden = false;
   compareControls.message.textContent = "Loading compare CDFs";
   compareControls.summary.textContent = "";
-  compareControls.charts.replaceChildren();
+  clearCompareCharts();
   setStatus("Running compare");
 
   try {
@@ -725,18 +828,19 @@ async function runCompare() {
       start: controls.start.value,
       end: controls.end.value,
       curves,
-    });
+    }, compareController.signal);
     if (request !== compareRequestNumber) return;
     drawCompareCharts(payload);
-    setStatus("");
+    if (activeTab === "compare") setStatus("");
   } catch (error) {
-    if (request !== compareRequestNumber) return;
+    if (request !== compareRequestNumber || error.name === "AbortError") return;
     compareControls.message.hidden = false;
     compareControls.message.textContent = error.message;
-    setStatus("Compare failed");
+    if (activeTab === "compare") setStatus("Compare failed");
   } finally {
     if (request === compareRequestNumber) {
-      compareControls.runButton.disabled = false;
+      compareRunPending = false;
+      updateCompareActionButtons();
     }
   }
 }
@@ -750,6 +854,7 @@ function refreshVisibleCompareOptions() {
 }
 
 function onCompareCollectionScopeChanged() {
+  invalidateCompareResults();
   const pruned = pruneCompareCollectionsToScope();
   renderCompareEntries();
   refreshVisibleCompareOptions();
@@ -765,6 +870,7 @@ function onCompareCollectionScopeChanged() {
 
 function onCompareTabShown() {
   const pruned = pruneCompareCollectionsToScope();
+  if (pruned) invalidateCompareResults();
   renderCompareEntries();
   refreshVisibleCompareOptions();
 
@@ -778,15 +884,15 @@ function onCompareTabShown() {
 }
 
 function onCompareDatabaseChanged() {
+  invalidateCompareResults();
   selectedCompareCurveIds.clear();
   collapsedCompareCurveIds.clear();
   for (const curve of compareCurves) {
+    cancelCompareOptions(curve);
     curve.collections = [];
     curve.options = null;
     resetCompareCurveFields(curve, "collection");
   }
-  comparePayload = null;
-  compareControls.charts.replaceChildren();
   compareControls.summary.textContent = "";
   showCompareMessage(comparePromptText());
   renderCompareEntries();

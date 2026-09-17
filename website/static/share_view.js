@@ -23,7 +23,7 @@ function markSharedViewChanged() {
 
 function updateShareButton() {
   const canShare = activeTab === "map" && Boolean(
-    controls.database.value && selectedCollections().length && controls.metric.value
+    controls.database.value && selectedCollections().length && controls.metric.value && !optionsPending
   );
   controls.share.disabled = !canShare;
   controls.share.title = activeTab === "map"
@@ -131,7 +131,7 @@ async function restoreSharedView(state) {
   if (state.version !== 1) {
     throw new Error("This share link uses an unsupported view format");
   }
-  if (!currentDatabase || !catalog) {
+  if (!catalog) {
     throw new Error("The measurement catalog is not available");
   }
   const database = catalog.databases.find((item) => item.name === state.database);
@@ -150,16 +150,12 @@ async function restoreSharedView(state) {
   }
 
   applyCollectionRange();
-  if (state.start) controls.start.value = state.start;
-  if (state.end) controls.end.value = state.end;
+  if (state.start) controls.start.value = inputTime(state.start);
+  if (state.end) controls.end.value = inputTime(state.end);
   fittedSelection = "";
 
-  await loadOptions({ resetFilters: true });
-  for (const name of ["technology", "operator", "band", "pci", "ssb"]) {
-    setSharedSelectValue(controls[name], state[name]);
-    await loadOptions();
-  }
-  setSharedSelectValue(controls.metric, state.metric);
+  const applied = await loadOptions({ selection: state });
+  if (!applied) return;
   updateCdfButton();
   await loadMeasurements();
   updateShareButton();

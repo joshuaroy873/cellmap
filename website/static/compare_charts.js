@@ -7,6 +7,14 @@ const compareLineStyles = {
   dashdot: [8, 4, 2, 4],
 };
 
+let compareChartCanvases = [];
+const compareCanvasSizes = new WeakMap();
+
+function clearCompareCharts() {
+  compareChartCanvases = [];
+  compareControls.charts.replaceChildren();
+}
+
 function makeCurvePreview(curve, className = "curve-preview") {
   const preview = document.createElement("span");
   preview.className = className;
@@ -44,6 +52,11 @@ function drawCompareChart(canvas, chart) {
   const ratio = window.devicePixelRatio || 1;
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
+  if (width < 140 || height < 140) return;
+  const previous = compareCanvasSizes.get(canvas);
+  if (previous?.chart === chart && previous.width === width
+      && previous.height === height && previous.ratio === ratio) return;
+  compareCanvasSizes.set(canvas, { chart, width, height, ratio });
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -149,7 +162,7 @@ function makeCompareLegend(chart) {
 
 function drawCompareCharts(payload) {
   comparePayload = payload;
-  compareControls.charts.replaceChildren();
+  clearCompareCharts();
   compareControls.summary.textContent = `${payload.curve_count} curves`;
 
   const charts = payload.charts || [];
@@ -160,7 +173,6 @@ function drawCompareCharts(payload) {
   }
 
   compareControls.message.hidden = true;
-  const canvases = [];
   for (const chart of charts) {
     const card = document.createElement("article");
     card.className = "compare-chart-card";
@@ -173,16 +185,17 @@ function drawCompareCharts(payload) {
 
     card.append(body, makeCompareLegend(chart));
     compareControls.charts.append(card);
-    canvases.push([canvas, chart]);
+    compareChartCanvases.push([canvas, chart]);
   }
 
   requestAnimationFrame(() => {
-    for (const [canvas, chart] of canvases) {
-      drawCompareChart(canvas, chart);
-    }
+    if (comparePayload === payload) redrawCompareCharts();
   });
 }
 
 function redrawCompareCharts() {
-  if (comparePayload) drawCompareCharts(comparePayload);
+  if (!comparePayload || activeTab !== "compare") return;
+  for (const [canvas, chart] of compareChartCanvases) {
+    if (canvas.isConnected) drawCompareChart(canvas, chart);
+  }
 }

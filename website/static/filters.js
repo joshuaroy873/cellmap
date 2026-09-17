@@ -19,7 +19,7 @@ function updateCdfButton() {
   controls.cdfButton.disabled = !(
     controls.database.value &&
     selectedCollections().length &&
-    controls.metric.value
+    controls.metric.value && !optionsPending
   );
   updateShareButton();
 }
@@ -93,7 +93,7 @@ function makeCollectionActions(selectAllLabel, scope, curveId = "") {
 }
 
 function inputTime(value) {
-  return value ? value.slice(0, 19) : "";
+  return value ? value.replace(" ", "T").replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "") : "";
 }
 
 function applyRange(collections) {
@@ -381,8 +381,8 @@ function measurementParams() {
   };
 }
 
-async function loadOptions({ resetFilters = false } = {}) {
-  if (!controls.database.value || !selectedCollections().length) return;
+async function loadOptions({ resetFilters = false, selection = null } = {}) {
+  if (!controls.database.value || !selectedCollections().length) return false;
   if (resetFilters) {
     controls.technology.value = "all";
     controls.operator.value = "all";
@@ -390,48 +390,46 @@ async function loadOptions({ resetFilters = false } = {}) {
     controls.pci.value = "all";
     controls.ssb.value = "all";
   }
-  options = await getJSON("/api/options", optionParams());
-
-  setSelect(
-    controls.technology,
-    options.technologies,
-    resetFilters ? "all" : controls.technology.value,
-    "All technologies"
-  );
-  setSelect(
-    controls.operator,
-    options.operators,
-    resetFilters ? "all" : controls.operator.value,
-    "All operators"
-  );
-  setTimeSeriesAvailable(controls.operator.value !== "all");
-  setSelect(
-    controls.band,
-    options.bands,
-    resetFilters ? "all" : controls.band.value,
-    "All bands"
-  );
-  setSelect(
-    controls.pci,
-    options.pcis,
-    resetFilters ? "all" : controls.pci.value,
-    "All PCIs"
-  );
-  setSelect(
-    controls.ssb,
-    options.ssb_indexes,
-    resetFilters ? "all" : controls.ssb.value,
-    "All SSB indexes"
-  );
-  setSelect(
-    controls.metric,
-    options.metrics,
-    resetFilters ? null : controls.metric.value
-  );
+  const params = optionParams();
+  if (selection) {
+    for (const name of ["technology", "operator", "band", "pci", "ssb"]) {
+      params[name] = selection[name] || "all";
+    }
+  }
+  const key = JSON.stringify(params);
+  if (!selection && key === lastOptionsKey) return true;
+  const request = ++optionRequestNumber;
+  optionController?.abort();
+  optionController = new AbortController();
+  optionsPending = true;
   updateCdfButton();
+  try {
+    const payload = await getJSON("/api/options", params, optionController.signal);
+    if (request !== optionRequestNumber) return false;
+    options = payload;
+
+    setSelect(controls.technology, options.technologies, params.technology, "All technologies");
+    setSelect(controls.operator, options.operators, params.operator, "All operators");
+    setTimeSeriesAvailable(controls.operator.value !== "all");
+    setSelect(controls.band, options.bands, params.band, "All bands");
+    setSelect(controls.pci, options.pcis, params.pci, "All PCIs");
+    setSelect(controls.ssb, options.ssb_indexes, params.ssb, "All SSB indexes");
+    setSelect(
+      controls.metric, options.metrics,
+      selection?.metric ?? (resetFilters ? null : controls.metric.value)
+    );
+    lastOptionsKey = JSON.stringify(optionParams());
+    return true;
+  } finally {
+    if (request === optionRequestNumber) {
+      optionsPending = false;
+      updateCdfButton();
+    }
+  }
 }
 
 function resetFilterOptions() {
+  lastOptionsKey = "";
   setSelect(controls.technology, [], "all", "All technologies");
   setSelect(controls.operator, [], "all", "All operators");
   setSelect(controls.band, [], "all", "All bands");

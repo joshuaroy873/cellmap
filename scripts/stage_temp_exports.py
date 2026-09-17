@@ -16,7 +16,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from cellmap_schema import FILE_TYPES  # noqa: E402
-from import_csvs import ROOT, file_hash, token  # noqa: E402
+from import_csvs import ROOT, database_directory, file_hash, token  # noqa: E402
 
 
 DATA = ROOT / "data"
@@ -79,7 +79,7 @@ def stage_file(path: Path, export_date: str, force: bool) -> Path:
     kind = FILE_TYPES[stem]
 
     database = database_name(path)
-    target = DATA / "_csvs" / database / export_date / f"{stem}.csv"
+    target = database_directory(DATA / "_csvs", database) / export_date / f"{stem}.csv"
     target.parent.mkdir(parents=True, exist_ok=True)
 
     if target.exists():

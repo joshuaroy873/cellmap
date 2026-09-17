@@ -1,51 +1,89 @@
 "use strict";
 
-function showSelectionPrompt(message) {
+function invalidateMapRequests() {
+  mapRefreshNumber += 1;
   requestNumber += 1;
+  optionRequestNumber += 1;
+  measurementController?.abort();
+  optionController?.abort();
+  optionsPending = false;
+  closeCdf();
+}
+
+function clearMapResult() {
+  lastMapPayload = null;
+  lastMapKey = "";
   markerLayer.clearLayers();
   $("map-legend").hidden = true;
-  setMapMessage(message);
   resetSummary();
   setTimeSeriesAvailable(false);
   clearDetails();
-  closeCdf();
+}
+
+function showSelectionPrompt(message) {
+  invalidateMapRequests();
+  clearMapResult();
+  setMapMessage(message);
 }
 
 async function loadMeasurements() {
   if (activeTab !== "map") return;
-  if (!controls.metric.value) return;
+  if (optionsPending) return;
+  if (!controls.metric.value) {
+    showSelectionPrompt("No metrics are available for these filters.");
+    return;
+  }
+  const params = measurementParams();
+  const key = JSON.stringify(params);
   const currentRequest = ++requestNumber;
+  measurementController?.abort();
   const showTimeSeries = controls.operator.value !== "all";
   setTimeSeriesAvailable(showTimeSeries);
+  if (lastMapPayload && key === lastMapKey) {
+    if (showTimeSeries) drawChart(lastMapPayload);
+    setMapMessage(lastMapPayload.points.length ? "" : "No mapped measurements match these filters.");
+    setStatus("");
+    return;
+  }
+  measurementController = new AbortController();
   setStatus("Querying measurements");
   setMapMessage("Loading measurements");
   try {
-    const payload = await getJSON("/api/measurements", measurementParams());
-    if (currentRequest !== requestNumber) return;
+    const payload = await getJSON("/api/measurements", params, measurementController.signal);
+    if (currentRequest !== requestNumber || activeTab !== "map") return;
+    lastMapPayload = payload;
+    lastMapKey = key;
     renderMap(payload);
     renderSummary(payload);
     if (showTimeSeries) drawChart(payload);
     clearDetails();
     setStatus("");
   } catch (error) {
-    if (currentRequest !== requestNumber) return;
+    if (currentRequest !== requestNumber || error.name === "AbortError") return;
+    clearMapResult();
     setStatus("Query failed");
     setMapMessage(error.message);
   }
 }
 
 async function refreshOptionsAndData(resetFilters = false) {
+  invalidateMapRequests();
+  const refresh = mapRefreshNumber;
   try {
     setStatus("Loading filter values");
-    await loadOptions({ resetFilters });
+    const applied = await loadOptions({ resetFilters });
+    if (!applied || refresh !== mapRefreshNumber) return;
     await loadMeasurements();
   } catch (error) {
+    if (refresh !== mapRefreshNumber || error.name === "AbortError") return;
+    clearMapResult();
     setStatus("Loading failed");
     setMapMessage(error.message);
   }
 }
 
 async function afterMapCollectionSelectionChanged() {
+  invalidateCompareResults();
   updateCollectionSummary();
   populateMeasurementTypes();
   applyCollectionRange();
@@ -60,6 +98,7 @@ async function afterMapCollectionSelectionChanged() {
 }
 
 async function afterCompareCollectionScopeSelectionChanged() {
+  invalidateMapRequests();
   updateCollectionSummary();
   populateMeasurementTypes();
   applyCollectionRange();
@@ -83,7 +122,10 @@ async function applyMapCollectionSelection(collections) {
 
 async function initialize() {
   try {
-    catalog = await getJSON("/api/catalog");
+    const [loadedCatalog, sharedView] = await Promise.all([
+      getJSON("/api/catalog"), loadSharedViewFromLocation(),
+    ]);
+    catalog = loadedCatalog;
     controls.database.replaceChildren(new Option("Select database", ""));
     for (const database of catalog.databases) {
       controls.database.add(new Option(database.name, database.name));
@@ -92,7 +134,6 @@ async function initialize() {
     applyCollectionRange();
     resetFilterOptions();
     initializeCompare();
-    const sharedView = await loadSharedViewFromLocation();
     if (sharedView) {
       await restoreSharedView(sharedView);
     } else {
@@ -100,12 +141,15 @@ async function initialize() {
       setStatus("Select database and collection");
     }
   } catch (error) {
+    if (error.name === "AbortError") return;
     setStatus("Initialization failed");
     setMapMessage(error.message);
   }
 }
 
 function setActiveTab(tab) {
+  if (activeTab === tab) return;
+  invalidateMapRequests();
   activeTab = tab;
   updateShareButton();
   document.body.dataset.tab = tab;
@@ -116,7 +160,10 @@ function setActiveTab(tab) {
   closeCdf();
 
   if (tab === "map") {
-    setTimeout(() => map.invalidateSize(), 0);
+    requestAnimationFrame(() => {
+      map.invalidateSize();
+      redrawTimeSeries();
+    });
     if (!controls.database.value || !selectedCollections().length) {
       const message = controls.database.value
         ? "Select collection"
@@ -132,6 +179,7 @@ function setActiveTab(tab) {
       else applyDatabaseRange();
     }
     onCompareTabShown();
+    requestAnimationFrame(redrawCompareCharts);
     setStatus(
       controls.database.value
         ? selectedCollections().length
@@ -146,6 +194,9 @@ tabControls.mapButton.addEventListener("click", () => setActiveTab("map"));
 tabControls.compareButton.addEventListener("click", () => setActiveTab("compare"));
 
 controls.database.addEventListener("change", async () => {
+  invalidateMapRequests();
+  clearMapResult();
+  lastOptionsKey = "";
   populateCollections(true);
   if (activeTab === "compare") applyDatabaseRange();
   else applyCollectionRange();
@@ -211,12 +262,15 @@ controls.ssb.addEventListener("change", async () => {
 });
 
 controls.metric.addEventListener("change", () => {
+  closeCdf();
   updateCdfButton();
   loadMeasurements();
 });
 
 for (const name of ["start", "end"]) {
   controls[name].addEventListener("change", () => {
+    invalidateCompareResults();
+    closeCdf();
     if (activeTab === "map") loadMeasurements();
   });
 }
@@ -232,6 +286,8 @@ $("cdf-modal").addEventListener("close", () => {
 });
 
 $("reset-time").addEventListener("click", () => {
+  closeCdf();
+  invalidateCompareResults();
   if (activeTab === "compare") {
     if (selectedCollections().length) applyCollectionRange();
     else applyDatabaseRange();
@@ -242,6 +298,7 @@ $("reset-time").addEventListener("click", () => {
 });
 
 $("clear-filters").addEventListener("click", () => {
+  invalidateCompareResults();
   controls.technology.value = "all";
   controls.operator.value = "all";
   controls.band.value = "all";
@@ -259,11 +316,21 @@ $("clear-filters").addEventListener("click", () => {
   refreshOptionsAndData(true);
 });
 
-window.addEventListener("resize", () => {
-  if (activeTab === "map") map.invalidateSize();
-  if ($("cdf-modal").open && cdfPayload) drawCdf(cdfPayload);
-  if (activeTab === "compare") redrawCompareCharts();
-});
+let chartResizeFrame = null;
+function scheduleChartResize() {
+  if (chartResizeFrame !== null) return;
+  chartResizeFrame = requestAnimationFrame(() => {
+    chartResizeFrame = null;
+    if (activeTab === "map") map.invalidateSize();
+    if (activeTab === "map") redrawTimeSeries();
+    if ($("cdf-modal").open && cdfPayload) drawCdf(cdfPayload);
+    if (activeTab === "compare") redrawCompareCharts();
+  });
+}
+window.addEventListener("resize", scheduleChartResize);
+const chartResizeObserver = new ResizeObserver(scheduleChartResize);
+chartResizeObserver.observe($("time-series-card"));
+chartResizeObserver.observe(compareControls.charts);
 
 document.body.dataset.tab = activeTab;
 initializeCollectionPopout();
