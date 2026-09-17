@@ -7,8 +7,10 @@ import argparse
 import gzip
 import json
 import mimetypes
+import os
 import re
 import secrets
+import shlex
 import sys
 from datetime import date, datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -40,6 +42,32 @@ MAX_CDF_POINTS = 400
 SHARED_VIEW_ID = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 MAX_SHARED_VIEW_COLLECTIONS = 1_000
 MAX_SHARED_VIEW_VALUE_LENGTH = 512
+
+
+def carto_basemap_key() -> str:
+    """Read only the browser basemap key; an environment variable takes priority."""
+    name = "CARTO_BASEMAP_KEY"
+    if name in os.environ:
+        return os.environ[name].strip()
+
+    try:
+        lines = (ROOT / ".env").read_text(encoding="utf-8-sig").splitlines()
+    except FileNotFoundError:
+        return ""
+
+    key = ""
+    for line in lines:
+        variable, separator, value = line.strip().removeprefix("export ").partition("=")
+        if not separator or variable.strip() != name:
+            continue
+        try:
+            parts = shlex.split(value, comments=True)
+        except ValueError:
+            raise ValueError("Invalid CARTO_BASEMAP_KEY quoting in .env") from None
+        if len(parts) > 1:
+            raise ValueError("CARTO_BASEMAP_KEY in .env must be a single value")
+        key = parts[0].strip() if parts else ""
+    return key
 
 
 def shared_string(value: object, label: str, required: bool = False) -> str | None:
@@ -797,6 +825,8 @@ class Handler(SimpleHTTPRequestHandler):
             query = parse_qs(parsed.query)
             if parsed.path == "/api/health":
                 payload = {"status": "ok"}
+            elif parsed.path == "/api/config":
+                payload = {"cartoBasemapKey": carto_basemap_key()}
             elif parsed.path == "/api/catalog":
                 payload = catalog_payload()
             elif parsed.path == "/api/options":
@@ -886,7 +916,7 @@ class Handler(SimpleHTTPRequestHandler):
         ):
             self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         super().end_headers()
 
     def guess_type(self, path: str) -> str:

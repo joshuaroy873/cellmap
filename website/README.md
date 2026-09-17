@@ -28,6 +28,37 @@ Listen on the local network:
 python website/server.py --host 0.0.0.0 --port 8000
 ```
 
+## Basemap key
+
+Create `.env` at the repository root with:
+
+```dotenv
+CARTO_BASEMAP_KEY=your-key-here
+```
+
+The server reads this file automatically when the browser requests `/api/config`.
+An environment variable named `CARTO_BASEMAP_KEY` takes priority over the file.
+Single or double quotes, comment lines, and trailing comments are supported;
+shell commands and variable expansion are not evaluated. No extra dependency
+or manual sourcing is required. Refresh after updating `.env`; restart the server
+if you change its environment variables.
+
+`.env` and `.env.*` are ignored by Git. Keep `.env` outside `website/static`.
+The config endpoint returns only
+the basemap key, not the rest of the environment or the file. The key is visible
+in browser requests, so restrict it to your deployment host in CARTO.
+
+For `https://cellmap.joshuaroy873.com`, allow the Referer host
+`cellmap.joshuaroy873.com`. Shared `?share=...` URLs use the same host. Requests
+from local development need their own allowed host or a separate development
+key. The server's `strict-origin-when-cross-origin` referrer policy sends only
+the origin to CARTO, without the shared-view query string.
+
+Tiles use the [authenticated CARTO Positron endpoint](https://carto.com/blog/positron-dark-matter-new-look/).
+If no key is configured or the config request fails, measurements can still load
+and the map shows a background-unavailable notice; details appear in the browser
+console. If authenticated tiles still show the old watermark, force-refresh.
+
 ## Files
 
 ```text
@@ -55,6 +86,7 @@ own view files without changing the API helper or filter code.
 
 ```text
 GET /api/health
+GET /api/config
 GET /api/catalog
 GET /api/options
 GET /api/measurements

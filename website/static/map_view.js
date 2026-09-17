@@ -6,12 +6,29 @@ const map = L.map("map", {
   zoomControl: true,
 }).setView([39.5, -98.35], 4);
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png", {
-  subdomains: "abcd",
-  maxZoom: 20,
-  attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-}).addTo(map);
+async function initializeBasemap() {
+  try {
+    const { cartoBasemapKey } = await getJSON("/api/config");
+    if (!cartoBasemapKey) {
+      throw new Error("Set CARTO_BASEMAP_KEY in the repository root .env file.");
+    }
+    L.tileLayer(
+      "https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png" +
+        `?key=${encodeURIComponent(cartoBasemapKey)}`,
+      {
+        subdomains: "abcd",
+        maxZoom: 20,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      }
+    ).addTo(map);
+  } catch (error) {
+    console.error("Basemap initialization failed:", error.message);
+    $("basemap-message").hidden = false;
+  }
+}
+
+initializeBasemap();
 
 markerLayer = L.layerGroup().addTo(map);
 

@@ -7,7 +7,7 @@
   <title>Cellular Measurement Map</title>
   <link rel="preconnect" href="https://a.basemaps.cartocdn.com">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
-  <link rel="stylesheet" href="/styles.css?v=20260703-compare-toggle-style-cycle">
+  <link rel="stylesheet" href="/styles.css?v=20260917-carto-key">
 </head>
 <body>
   <div class="app">
@@ -103,6 +103,9 @@
         <div id="map" aria-label="Colored cellular measurement map"></div>
         <div id="map-message" class="map-message">
           Select database and collection
+        </div>
+        <div id="basemap-message" class="basemap-message" role="status" hidden>
+          Background map unavailable
         </div>
         <div id="map-legend" class="legend" hidden>
           <strong id="legend-unit"></strong>
@@ -250,7 +253,7 @@
   <script src="/api.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/charts.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/filters.js?v=20260703-compare-toggle-style-cycle"></script>
-  <script src="/map_view.js?v=20260703-compare-toggle-style-cycle"></script>
+  <script src="/map_view.js?v=20260917-carto-key"></script>
   <script src="/compare_charts.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/compare_view.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/share_view.js?v=20260821-shared-views"></script>
