@@ -136,7 +136,7 @@ Close writable DuckDB connections before importing.
 
 ## Partition Model
 
-Schema version: `2`
+Schema version: `3`
 
 Partition key:
 
@@ -285,23 +285,22 @@ The importer:
 - stores LTE `ssb_index` as `NULL`;
 - converts QualiPoc throughput from Kbps to Mbps.
 
-PDSCH rows are imported only when:
+Radio and Neighbour rows are not filtered by Test Name, Direction, or Test Status.
+The common validation requirements above still apply.
+
+PDSCH and PUSCH rows (both LTE and NR) are imported only when:
 
 ```text
-Test Name = Capacity, Capacity HTTP/FTP, or Ookla(R)
-Direction = Downlink
-Test Status = Completed
-```
-
-PUSCH rows are imported only when:
-
-```text
-Test Name = Capacity, Capacity HTTP/FTP, or Ookla(R)
-Direction = Uplink
+Test Name = Capacity or Capacity HTTP/FTP
+Direction = Downlink for PDSCH; Uplink for PUSCH
 Test Status = Completed
 ```
 
 The filter columns above are required input columns but are not stored.
+PDSCH excludes Uplink tests; PUSCH excludes Downlink tests. Ookla and all other
+test names are excluded from PDSCH/PUSCH imports. Existing processed data
+is unchanged until an import is run; schema version 3 causes previously
+processed files to be reconsidered on the next import.
 
 ## Hashing
 

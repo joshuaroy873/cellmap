@@ -1,6 +1,6 @@
 """Shared schema constants for CSV import and website queries."""
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 NULL_FILTER_VALUE = "__null__"
 
 CATEGORY_TYPES = {
@@ -253,22 +253,22 @@ DERIVED_COLUMNS = {
 
 ROW_FILTERS = {
     "lte_pdsch": [
-        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP")),
         (["direction"], "Downlink"),
         (["test_status"], "Completed"),
     ],
     "nr_pdsch": [
-        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP")),
         (["direction"], "Downlink"),
         (["test_status"], "Completed"),
     ],
     "lte_pusch": [
-        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP")),
         (["direction"], "Uplink"),
         (["test_status"], "Completed"),
     ],
     "nr_pusch": [
-        (["test_name"], ("Capacity", "Capacity HTTP/FTP", "Ookla(R)")),
+        (["test_name"], ("Capacity", "Capacity HTTP/FTP")),
         (["direction"], "Uplink"),
         (["test_status"], "Completed"),
     ],
