@@ -38,7 +38,7 @@ from cellmap_schema import (  # noqa: E402
 from compare_api import compare_cdf_payload  # noqa: E402
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
-SHARE_DB_PATH = ROOT / "data/_processed/shared_views.sqlite3"
+SHARE_DB_PATH = ROOT / "data/shared_views.sqlite3"
 MEASUREMENTS = ROOT / "data/_processed/measurements"
 MAX_POINTS = 6_000
 MAX_SERIES_POINTS = 500
@@ -180,9 +180,13 @@ def create_shared_view_payload(request: dict[str, object]) -> dict[str, object]:
     raise RuntimeError("Could not create a unique shared-view link")
 
 
-def initialize_share_store() -> None:
-    SHARE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(SHARE_DB_PATH, timeout=10)) as con:
+def initialize_share_store(
+    store_path: Path | None = None, legacy_path: Path | None = None,
+) -> None:
+    store_path = SHARE_DB_PATH if store_path is None else store_path
+    legacy_path = ROOT / "data/_processed/shared_views.sqlite3" if legacy_path is None else legacy_path
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(store_path, timeout=10)) as con:
         con.execute("PRAGMA journal_mode=WAL")
         con.execute("""
             CREATE TABLE IF NOT EXISTS shared_views (
@@ -191,6 +195,18 @@ def initialize_share_store() -> None:
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # Copy, never delete, the previous store. The new location survives swaps.
+        if legacy_path.exists() and legacy_path.resolve() != store_path.resolve():
+            with closing(sqlite3.connect(legacy_path.resolve().as_uri() + "?mode=ro", uri=True)) as old:
+                rows = old.execute("SELECT id, state_json, created_at FROM shared_views").fetchall()
+            for identifier, state, created in rows:
+                existing = con.execute("SELECT state_json FROM shared_views WHERE id = ?", [identifier]).fetchone()
+                if existing and existing[0] != state:
+                    raise ValueError("Conflicting shared-view IDs; original stores were preserved")
+                con.execute(
+                    "INSERT OR IGNORE INTO shared_views(id, state_json, created_at) VALUES (?, ?, ?)",
+                    [identifier, state, created],
+                )
         con.commit()
 
 

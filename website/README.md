@@ -7,6 +7,9 @@ DuckDB catalog and Parquet partitions in `data/_processed`.
 
 There is no frontend build step.
 
+This guide describes local source as of 2026-09-18, including uncommitted changes;
+running processes may not yet have loaded these changes.
+
 ## Run
 
 From the repository root:
@@ -27,6 +30,20 @@ Listen on the local network:
 ```bash
 python website/server.py --host 0.0.0.0 --port 8000
 ```
+
+These commands start foreground processes. Do not start a duplicate if the
+website is already service-managed. Safe importer activation requires a Linux
+systemd user manager and refuses unmanaged website processes.
+
+Last known setup on `ghoshlab2` (inspect before restarting):
+
+- Public URL: `https://cellmap.joshuaroy873.com`.
+- `cellmap-server-8000.service`: `127.0.0.1:8000`.
+- `cellmap-repo-preview-8001.service`: `100.85.31.36:8001`, accessible through
+  Tailscale at `http://100.85.31.36:8001`.
+
+These were transient user services; stopped units may disappear. The importer
+captures and recreates active transient instances during activation.
 
 ## Basemap key
 
@@ -98,6 +115,8 @@ GET /api/shared-views/<id>
 
 The API accepts predefined measurement types, metrics, and filters only.
 JSON responses use gzip when supported by the browser.
+Static JavaScript/CSS URLs are content-versioned with ETag/cache handling.
+Queries and aggregation run on the server; the browser renders bounded results.
 
 Payload limits:
 
@@ -105,6 +124,7 @@ Payload limits:
 map points          6,000 max
 time-series buckets about 500
 CDF points          401 quantile points
+Compare curves      20 max per request
 ```
 
 ## UI
@@ -139,28 +159,41 @@ The CDF modal is drawn in browser canvas from `/api/cdf`.
 It shows P5, median, and P95 in the header and chart callouts.
 
 The Share button saves the current Map database, selected collections, time
-range, and filters as a small record in DuckDB. It copies a short `?share=`
+range, and filters as a small record in `data/shared_views.sqlite3`. It copies a short `?share=`
 link that restores the same Map view for someone using the same server and
 catalog. A shared link does not include measurement data.
 
-The Compare tab does not use the top collection selector. Each compare curve
-has its own collection, measurement/metric, color, line style, and radio
-filters. Running Compare sends all curves to `POST /api/compare/cdf` in one
-batch request and groups the returned CDF charts by measurement/metric.
+On startup, existing SQLite links in `data/_processed/shared_views.sqlite3`
+are copied to the stable location without deleting the original store. Legacy
+DuckDB links remain readable. The [import workflow](../scripts/README.md#safe-imports-and-rebuilds)
+preserves both kinds of links, but a link cannot display collections omitted
+from the replacement dataset.
 
-After 10 minutes without browser activity, the page shows a transparent
-session-paused overlay. Refreshing starts a new browser session.
+The Compare tab uses the top-bar database, collection scope, and time range.
+Each curve selects one or more collections from that scope, with its own
+measurement/metric, color, line style, and radio filters. Running Compare sends
+the configured curves to `POST /api/compare/cdf` in one batch request and groups
+the returned charts by measurement/metric. Relevant selection changes invalidate
+previous results; run Compare again to refresh them.
+
+Rows without coordinates cannot appear on the map, but remain eligible for
+summary statistics, time-series, and CDF queries when other filters match.
 
 ## Notes
 
-Close the website server before running `scripts/import_csvs.py` if DuckDB
-reports a write lock.
+`scripts/import_csvs.py /path/to/csv-folder` builds and validates separately,
+then briefly stops/restarts the configured website services for the swap.
+Use `--check-only` to validate without changing the active dataset.
+Normal imports preserve unrelated partitions; `--rebuild` replaces the entire
+dataset using supplied CSVs. The safe-import workflow and stable SQLite location
+have not yet been exercised on the live dataset. Existing processes may still
+use the old share-store location until restart.
 
 The importer can also remove a complete local database. Stop the server first,
 preview the removal with:
 
 ```bash
-python scripts/import_csvs.py --delete-database <database>
+.venv/bin/python scripts/import_csvs.py --delete-database DATABASE
 ```
 
 The preview lists every catalog collection. Then add `--yes` only when ready to

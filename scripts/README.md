@@ -1,165 +1,167 @@
-# Scripts
+# CSV Import
 
-These scripts stage QualiPoc CSV exports, convert them into canonical Parquet
-partitions, and maintain the DuckDB catalog used by the website.
+There is one data-management command: `scripts/import_csvs.py`.
+It scans a folder recursively, recognizes supported CSV names, validates and
+filters the rows, and imports them into the website's dataset.
 
-## Staging Workflow
+The consolidated safe-import workflow is implemented locally but has not yet
+been used to reimport or swap the live dataset. Separate staging, initialization,
+summary, and rebuild scripts are no longer needed.
 
-Put new CSVs in:
+## Everyday commands
 
-```text
-data/_temp/
-```
-
-Then run:
-
-```bash
-python scripts/stage_temp_exports.py --date YYYYMMDD
-```
-
-The staging script:
-
-- reads `Database` from each CSV;
-- moves each CSV to `data/_csvs/<database>/<date>/`;
-- runs `scripts/import_csvs.py`.
-
-Supported date formats:
-
-```text
-YYYYMMDD
-YYYYMMDD-HHMM
-```
-
-Useful option:
+Import a folder, preserving unrelated databases and collections:
 
 ```bash
-python scripts/stage_temp_exports.py --date YYYYMMDD --force
+.venv/bin/python scripts/import_csvs.py /path/to/csv-folder
 ```
 
-`--force` replaces differing CSVs already staged for that date and forces the
-following import to rewrite matching partitions.
+Replace the entire dataset using only the supplied inputs:
 
-## Recognized CSV Names
+```bash
+.venv/bin/python scripts/import_csvs.py /path/to/complete-csv-dump --rebuild
+```
+
+Check either operation without changing live data or stopping the website:
+
+```bash
+.venv/bin/python scripts/import_csvs.py /path/to/csv-folder --check-only
+.venv/bin/python scripts/import_csvs.py /path/to/complete-csv-dump --rebuild --check-only
+```
+
+Paths can be files or folders, inside or outside this repository. Subfolders and
+uppercase `.CSV` extensions are supported. Original CSVs are never moved,
+renamed, or deleted by an import. With no path, the script scans `data/_csvs`.
+
+The export date comes from a `YYYYMMDD` or `YYYYMMDD-HHMM` parent folder,
+otherwise from the file's modification time. Use `--date YYYYMMDD-HHMM` when
+you know the export date and the folder/modification times are unsuitable.
+Older snapshots cannot overwrite newer matching partitions. Different snapshots
+for the same collection/type at the same export time are rejected as ambiguous.
+
+## Recognized filenames
 
 ```text
 lte_radio.csv
-lte_radio_neig.csv
-lte_radio_neighbor.csv
+lte_radio_neig.csv / lte_radio_neighbor.csv
 lte_pdsch.csv
 lte_pusch.csv
 nr_radio.csv
-nr_radio_neig.csv
-nr_radio_neighbor.csv
+nr_radio_neig.csv / nr_radio_neighbor.csv
 nr_pdsch.csv
 nr_pusch.csv
 ```
 
-`scripts/stage_temp_exports.py` also accepts these QualiPoc auto-export names
-in `data/_temp/` and renames them while staging:
+QualiPoc names also work directly, without a separate staging step:
 
 ```text
-LTE Radio [connected].csv   -> lte_radio.csv
-LTE Radio Neig.csv          -> lte_radio_neig.csv
-LTE PDSCH [per-carrier].csv -> lte_pdsch.csv
-LTE PUSCH [per-carrier].csv -> lte_pusch.csv
-NR Radio [connected].csv    -> nr_radio.csv
-NR Radio Beam.csv           -> nr_radio_neig.csv
-NR PDSCH [per-carrier].csv  -> nr_pdsch.csv
-NR PUSCH [per-carrier].csv  -> nr_pusch.csv
+LTE Radio [connected].csv
+LTE Radio Neig.csv
+LTE PDSCH [per-carrier].csv
+LTE PUSCH [per-carrier].csv
+NR Radio [connected].csv
+NR Radio Beam.csv
+NR PDSCH [per-carrier].csv
+NR PUSCH [per-carrier].csv
 ```
 
-## Import Commands
+Unrecognized CSV filenames stop the import with an error rather than silently
+omitting potentially important measurements.
 
-Import all archived CSVs:
+## Import versus rebuild
+
+The partition key is `database_name, collection_name, measurement_type`.
+
+- **Normal import:** matching partitions are complete snapshots, not rows to
+  append. Unrelated partitions remain unchanged. Reimporting a CSV does not
+  duplicate its measurements. Empty or fully excluded snapshots are reported
+  and leave existing measurements untouched.
+- **Rebuild:** starts from empty and replaces the complete dataset. Omitted
+  databases/collections are not retained. For the existing
+  `data/_csvs/<database>/<date>/<type>.csv` archive layout, only the newest
+  supplied file per database/type is used, including empty files. Otherwise,
+  newer supplied collection/type snapshots take precedence over older ones.
+- A header-only file outside the dated archive layout cannot identify its
+  database or collections. A rebuild rejects it if another file of the same
+  measurement type makes its scope ambiguous. Supply only the intended current
+  exports, or use the dated archive layout.
+- A full rebuild with zero accepted measurements requires `--allow-empty`.
+  Normal imports never interpret an empty input as an instruction to delete data.
+
+## Safe imports and rebuilds
+
+Both modes use **build → validate → briefly stop → swap → restart/check**:
+
+1. Prepare a dataset in `data/_rebuild-<id>/`. Normal imports copy the existing
+   catalog and hard-link its Parquet files; rebuilds start empty. Changed
+   partitions are written to new files, so live measurements are never modified.
+2. Report raw/accepted/rule-excluded rows and empty files. Missing required
+   columns or invalid required values block activation, even in excluded rows.
+3. Read all Parquet partitions and verify schema, counts, time bounds and
+   collection identity against the catalog. Reject missing or extra files.
+4. Stop the configured website services. Preserve old SQLite links in
+   `data/shared_views.sqlite3` outside the swapped folder, and copy legacy
+   DuckDB links into the replacement catalog.
+5. Rename the active `data/_processed` to `data/_backup-<id>`, put the staged
+   dataset at the original path, restart, and check the API. Activation failures
+   restore the previous folder and restart/check it. No dataset is automatically
+   deleted.
+
+An `import-report.json` in the prepared dataset records source files and row
+counts. Failed or check-only builds are retained for inspection. Builds and
+validation use two DuckDB threads and a 1 GB memory limit. A shared import lock
+prevents overlapping imports/deletions. Source files changing during processing
+also block activation.
+
+Activation controls the Linux server's systemd user units, defaulting to
+`cellmap-server-8000.service` and `cellmap-repo-preview-8001.service`. For other
+names, repeat `--service NAME.service`. Only initially active instances are
+restarted; if none are running, import happens offline. Unmanaged website
+processes must be stopped or placed under a named service first. Persistent
+units are restarted; transient units are recreated with their command and
+working directory. No browser automation is involved.
+
+Ctrl+C and SIGTERM during activation trigger rollback. Power loss, SIGKILL, or
+a failure during rollback can require manual recovery. Exact backup paths are
+printed before stopping anything. Keep all instances stopped, move a failed
+active dataset aside without deleting it, restore the backup to
+`data/_processed`, and restart. Keep `data/shared_views.sqlite3` untouched.
+Do not guess which backup is current.
+
+## Delete a database
+
+Preview only:
 
 ```bash
-python scripts/import_csvs.py
+.venv/bin/python scripts/import_csvs.py --delete-database DATABASE
 ```
 
-Import one export folder:
+Confirm permanent deletion (stop the website first):
 
 ```bash
-python scripts/import_csvs.py data/_csvs/<database>/<date>
+.venv/bin/python scripts/import_csvs.py --delete-database DATABASE --yes
 ```
 
-Force reprocessing and rewrite matching partitions:
+This separate operation removes that database's archived CSV directory, processed
+partitions and matching catalog records. It does not delete externally supplied
+CSVs, shared links, other databases, or retained dataset backups. Unlike imports,
+confirmed deletion is not a dataset-swap operation.
+
+## Tests and shared definitions
+
+`cellmap_schema.py` holds the definitions shared with the website; it is not a
+separate command. Schema/filter version: `3`.
+
+One regression-test file covers imports, filters, validation, shared links and
+rollback using synthetic data, without touching live measurements or services:
 
 ```bash
-python scripts/import_csvs.py --force
-python scripts/import_csvs.py --force data/_csvs/<database>/<date>
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-## Delete a Database
-
-Preview the removal of one database:
-
-```bash
-python scripts/import_csvs.py --delete-database <database>
-```
-
-The preview lists every catalog collection plus the archive directory, generated
-Parquet partitions, and DuckDB records that belong to the database. It does not
-delete anything.
-
-To permanently remove that database, explicitly confirm it:
-
-```bash
-python scripts/import_csvs.py --delete-database <database> --yes
-```
-
-This removes only:
-
-- `data/_csvs/<database>/` and its archived CSVs;
-- matching generated partition directories in `data/_processed/measurements/`;
-- matching `measurement_partitions` records and `processed_files` records whose
-  source path is inside that archive directory.
-
-It does not delete `data/_temp/`, the shared `cellular.duckdb` file, or another
-database. The database name must be a single directory name; close the website
-before running the confirmed deletion if DuckDB reports a lock.
-
-Initialize the catalog without importing:
-
-```bash
-python scripts/init_database.py
-```
-
-Summarize the processed DuckDB catalog:
-
-```bash
-python scripts/summarize_database.py
-python scripts/summarize_database.py --no-collections
-python scripts/summarize_database.py --show-types
-```
-
-Close writable DuckDB connections before importing.
-
-## Partition Model
-
-Schema version: `3`
-
-Partition key:
-
-```text
-database_name, collection_name, measurement_type
-```
-
-Measurement types:
-
-```text
-lte_radio
-lte_radio_neighbor
-lte_pdsch
-lte_pusch
-nr_radio
-nr_radio_neighbor
-nr_pdsch
-nr_pusch
-```
-
-Each collection export is treated as a complete snapshot per measurement type.
-A newer matching partition replaces the old partition. Missing partitions in a
-newer export are retained. Rows are not deduplicated by timestamp.
+The single test file is retained for AI-assisted maintenance after code changes,
+not as a required step for every CSV import. All 35 tests passed on 2026-09-18.
+Service operations are mocked; these are not live deployment or browser tests.
 
 ## Canonical Columns
 
@@ -299,14 +301,15 @@ Test Status = Completed
 The filter columns above are required input columns but are not stored.
 PDSCH excludes Uplink tests; PUSCH excludes Downlink tests. Ookla and all other
 test names are excluded from PDSCH/PUSCH imports. Existing processed data
-is unchanged until an import is run; schema version 3 causes previously
-processed files to be reconsidered on the next import.
+is unchanged until an import is run. Supplied files use schema version 3;
+unrelated older partitions remain in a normal import if their physical schema
+validates. Use a full rebuild to apply current rules throughout the dataset.
 
 ## Hashing
 
 The importer stores:
 
-- raw CSV SHA-256 hashes, used to skip identical files;
+- raw CSV SHA-256 hashes, used to record source contents;
 - canonical partition hashes, used to detect changed partitions.
 
 Only canonical columns affect partition hashes. Extra QualiPoc columns are
