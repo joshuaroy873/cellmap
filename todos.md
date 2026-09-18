@@ -30,7 +30,9 @@ schema changes, reimports, or server restarts.
 - Consolidated importer: build, validate, stop, swap, restart/check, rollback,
   and retained backups. No real reimport or live swap performed for this work.
 - Shared SQLite links outside the swapped dataset, with legacy migration.
-- One synthetic regression-test file retained for AI maintenance; 35 tests pass.
+- One synthetic regression-test file retained for AI maintenance; 36 tests pass.
+- Removed unchanged-Parquet fingerprinting; matching accepted snapshots are
+  rewritten, while source-change detection and Parquet validation remain.
 
 The previous Ookla PDSCH/PUSCH item is not an outstanding filter bug under the
 owner's current rules. Only completed Capacity and Capacity HTTP/FTP are accepted:

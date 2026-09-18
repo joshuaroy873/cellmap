@@ -160,7 +160,7 @@ rollback using synthetic data, without touching live measurements or services:
 ```
 
 The single test file is retained for AI-assisted maintenance after code changes,
-not as a required step for every CSV import. All 35 tests passed on 2026-09-18.
+not as a required step for every CSV import. All 36 tests passed on 2026-09-18.
 Service operations are mocked; these are not live deployment or browser tests.
 
 ## Canonical Columns
@@ -307,13 +307,18 @@ validates. Use a full rebuild to apply current rules throughout the dataset.
 
 ## Hashing
 
-The importer stores:
+The importer retains raw CSV SHA-256 hashes for source provenance, detecting
+files changed during processing, and recognizing identical same-date inputs.
+Parquet validation also hashes decoded rows to ensure every column is read.
 
-- raw CSV SHA-256 hashes, used to record source contents;
-- canonical partition hashes, used to detect changed partitions.
+There is no normalized-data fingerprint or unchanged-Parquet shortcut.
+Accepted matching snapshots are rewritten even when their measurements are
+identical; older inputs are still skipped and unrelated partitions are retained.
+`--force` was removed because rewriting is now the default. Reimports replace
+partitions rather than appending duplicate rows.
 
-Only canonical columns affect partition hashes. Extra QualiPoc columns are
-ignored.
+The legacy catalog `content_hash` column is retained for compatibility with
+existing catalogs but is unused; rewritten partitions store an empty string.
 
 ## DuckDB Tables
 

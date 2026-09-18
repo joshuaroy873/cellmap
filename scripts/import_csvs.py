@@ -438,15 +438,6 @@ def canonical_select(
     return f"SELECT {', '.join(expressions)} FROM {source}{where}"
 
 
-def partition_fingerprint(
-    kind: str, columns: list[str], aggregate: tuple[object, ...]
-) -> str:
-    payload = [SCHEMA_VERSION, kind, columns, *aggregate]
-    return hashlib.sha256(
-        json.dumps(payload, separators=(",", ":"), default=str).encode()
-    ).hexdigest()
-
-
 def upsert_partition(
     con: duckdb.DuckDBPyConnection,
     values: tuple[object, ...],
@@ -505,32 +496,15 @@ def validate_staged_rows(con: duckdb.DuckDBPyConnection, path: Path) -> None:
         raise ValueError(f"{path}: {invalid} rows lack time, database, or collection")
 
 
-def staged_columns(con: duckdb.DuckDBPyConnection) -> list[str]:
-    return [row[1] for row in con.execute("PRAGMA table_info('staged')").fetchall()]
-
-
-def partition_summaries(
-    con: duckdb.DuckDBPyConnection, columns: list[str]
-) -> list[tuple[object, ...]]:
-    fields = ", ".join(f"{sql_name(name)} := {sql_name(name)}" for name in columns)
-    return con.execute(f"""
-        WITH hashed AS (
-            SELECT
-                *,
-                to_json(struct_pack({fields})) AS row_json
-            FROM staged
-        )
+def partition_summaries(con: duckdb.DuckDBPyConnection) -> list[tuple[object, ...]]:
+    return con.execute("""
         SELECT
             database_name,
             collection_name,
             count(*) AS row_count,
             min(measured_at) AS start_time,
-            max(measured_at) AS end_time,
-            sum(md5_number_lower(row_json)) AS lower_sum,
-            bit_xor(md5_number_lower(row_json)) AS lower_xor,
-            sum(md5_number_upper(row_json)) AS upper_sum,
-            bit_xor(md5_number_upper(row_json)) AS upper_xor
-        FROM hashed
+            max(measured_at) AS end_time
+        FROM staged
         GROUP BY database_name, collection_name
         ORDER BY database_name, collection_name
     """).fetchall()
@@ -544,7 +518,7 @@ def current_partition(
 ) -> tuple[object, ...] | None:
     return con.execute(
         """
-        SELECT content_hash, exported_at, parquet_path, schema_version
+        SELECT exported_at
         FROM measurement_partitions
         WHERE database_name = ?
           AND collection_name = ?
@@ -622,20 +596,15 @@ def process_partition(
     con: duckdb.DuckDBPyConnection,
     path: Path,
     kind: str,
-    force: bool,
     raw_hash: str,
     exported_at: datetime,
-    columns: list[str],
     summary: tuple[object, ...],
     *, output: Path | None = None,
 ) -> None:
-    database, collection, count, start, end, *hash_parts = summary
-    fingerprint = partition_fingerprint(
-        kind, columns, (count, start, end, *hash_parts)
-    )
+    database, collection, count, start, end = summary
     current = current_partition(con, database, collection, kind)
 
-    if current and current[1] and exported_at < current[1]:
+    if current and current[0] and exported_at < current[0]:
         print(
             f"SKIP older [{path.parent.name}]: "
             f"{database} / {collection} / {kind}"
@@ -645,22 +614,9 @@ def process_partition(
     target = partition_path(database, collection, kind, output)
     # A staged rebuild stores final, fixed paths, not its temporary directory.
     relative_target = partition_path(database, collection, kind).relative_to(ROOT).as_posix()
-    unchanged = (
-        not force
-        and current
-        and current[0] == fingerprint
-        and current[3] == SCHEMA_VERSION
-    )
-
-    if unchanged:
-        print(
-            f"SKIP partition unchanged [{path.parent.name}]: "
-            f"{database} / {collection} / {kind}"
-        )
-    else:
-        write_partition(con, database, collection, target)
-        action = "ADD" if current is None else "REPLACE"
-        print(f"{action}: {database} / {collection} / {kind} ({count:,} rows)")
+    write_partition(con, database, collection, target)
+    action = "ADD" if current is None else "REPLACE"
+    print(f"{action}: {database} / {collection} / {kind} ({count:,} rows)")
 
     upsert_partition(
         con,
@@ -674,9 +630,9 @@ def process_partition(
             count,
             start,
             end,
-            fingerprint,
+            "",  # Retain the legacy NOT NULL catalog column without fingerprinting.
             raw_hash,
-            relative_target if not unchanged else current[2],
+            relative_target,
         ),
     )
 
@@ -751,7 +707,7 @@ def seed_dataset(stage: Path) -> None:
 
 def build_dataset(
     stage: Path, inputs: list[tuple[Path, str]], *, rebuild: bool = True,
-    force: bool = False, date: datetime | None = None,
+    date: datetime | None = None,
 ) -> list[dict]:
     reports = []
     seen = {}
@@ -803,10 +759,9 @@ def build_dataset(
                 )
             """)
             eligible_rows = con.execute("SELECT count(*) FROM staged").fetchone()[0]
-            columns = staged_columns(con)
-            for summary in partition_summaries(con, columns):
+            for summary in partition_summaries(con):
                 process_partition(
-                    con, path, kind, force, raw_hash, exported, columns, summary,
+                    con, path, kind, raw_hash, exported, summary,
                     output=stage / "measurements",
                 )
             if file_hash(path) != raw_hash:
@@ -1025,14 +980,13 @@ def main() -> int:
     parser.add_argument("--rebuild", action="store_true", help="Replace the entire dataset using only these inputs; otherwise preserve unrelated collections")
     parser.add_argument("--check-only", action="store_true", help="Build and validate without changing the active dataset or stopping the website")
     parser.add_argument("--date", type=parse_date, help="Export date YYYYMMDD[-HHMM]; otherwise use dated parent folders or file modification times")
-    parser.add_argument("--force", action="store_true", help="Rewrite matching partitions even if their contents are unchanged")
     parser.add_argument("--allow-empty", action="store_true", help="Allow a full rebuild containing zero accepted measurements")
     parser.add_argument("--service", action="append", help="Website systemd user service; repeat for every instance when using non-default names")
     parser.add_argument("--delete-database", metavar="NAME", help="Preview deletion of one database (separate from importing)")
     parser.add_argument("--yes", action="store_true", help="Confirm --delete-database")
     args = parser.parse_args()
     if args.delete_database:
-        if args.paths or args.rebuild or args.check_only or args.date or args.force or args.allow_empty or args.service:
+        if args.paths or args.rebuild or args.check_only or args.date or args.allow_empty or args.service:
             parser.error("--delete-database cannot be combined with import options")
         with import_lock():
             plan = database_deletion_plan(args.delete_database)
@@ -1053,7 +1007,7 @@ def main() -> int:
         stage = Path(tempfile.mkdtemp(prefix="_rebuild-", dir=DATA))
         print(f"Building in {stage}; live dataset is unchanged.", flush=True)
         try:
-            files = build_dataset(stage, inputs, rebuild=args.rebuild, force=args.force, date=args.date)
+            files = build_dataset(stage, inputs, rebuild=args.rebuild, date=args.date)
             summary = validate_dataset(stage)
             report = {"mode": "rebuild" if args.rebuild else "import", "files": files,
                       "superseded_exports": superseded, "validated": summary}

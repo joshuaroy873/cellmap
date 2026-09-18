@@ -277,12 +277,28 @@ class ImportTests(unittest.TestCase):
     def test_repeated_import_does_not_duplicate_rows(self):
         path = self.csv()
         importer.build_dataset(self.active, [(path, "lte_pdsch")])
-        importer.build_dataset(self.stage, [(path, "lte_pdsch")], rebuild=False)
+        original = importer.partition_path("example", "sample", "lte_pdsch")
+        original_bytes = original.read_bytes()
+        # Existing catalogs may still contain fingerprints from the old importer.
+        with duckdb.connect(str(self.active / "cellular.duckdb")) as con:
+            con.execute("UPDATE measurement_partitions SET content_hash='legacy-fingerprint'")
+        with patch.object(importer, "write_partition", wraps=importer.write_partition) as write:
+            importer.build_dataset(self.stage, [(path, "lte_pdsch")], rebuild=False)
+            write.assert_called_once()
+        replacement = importer.partition_path("example", "sample", "lte_pdsch", self.stage / "measurements")
+        self.assertNotEqual(original.stat().st_ino, replacement.stat().st_ino)
+        self.assertEqual(original.read_bytes(), original_bytes)
         self.assertEqual(importer.validate_dataset(self.stage)["rows"], 1)
         with duckdb.connect(str(self.stage / "cellular.duckdb"), read_only=True) as con:
             stored, count = con.execute("SELECT parquet_path,row_count FROM measurement_partitions").fetchone()
             self.assertTrue((self.root / stored).is_file())
             self.assertEqual(count, 1)
+            self.assertEqual(con.execute("SELECT content_hash FROM measurement_partitions").fetchone()[0], "")
+
+    def test_source_change_during_import_is_rejected(self):
+        with patch.object(importer, "file_hash", side_effect=["before", "after"]):
+            with self.assertRaisesRegex(ValueError, "CSV changed during the import"):
+                importer.build_dataset(self.stage, [(self.csv(), "lte_pdsch")])
 
     def test_normal_import_preserves_unrelated_collections_and_old_files(self):
         collection_column = next(aliases[0] for name, _, aliases in COMMON_COLUMNS if name == "collection_name")
