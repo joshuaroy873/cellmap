@@ -6,7 +6,7 @@ const map = L.map("map", {
   zoomControl: true,
 }).setView([39.5, -98.35], 4);
 
-async function initializeBasemap() {
+async function initializeBasemap(target = map, onError = () => { $("basemap-message").hidden = false; }) {
   try {
     const { cartoBasemapKey } = await getJSON("/api/config");
     if (!cartoBasemapKey) {
@@ -21,10 +21,10 @@ async function initializeBasemap() {
         attribution:
           '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
       }
-    ).addTo(map);
+    ).addTo(target);
   } catch (error) {
     console.error("Basemap initialization failed:", error.message);
-    $("basemap-message").hidden = false;
+    onError();
   }
 }
 

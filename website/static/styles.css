@@ -289,6 +289,77 @@ label {
   padding: 0.75rem;
 }
 
+/* Geo-poly retains a blank Map-style filter pane. */
+.workspace.geo-poly-workspace {
+  grid-template-rows: minmax(340px, 1fr);
+}
+
+.geo-poly-workspace.has-results {
+  grid-template-columns: 235px minmax(0, 1fr) 400px;
+}
+
+.geo-map-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.geo-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem;
+  background: var(--panel);
+  font-size: 0.8rem;
+}
+
+#geo-map { flex: 1; min-height: 300px; }
+.geo-results { overflow: auto; padding: 1rem; background: var(--panel); border-left: 1px solid var(--line); font-size: 0.9rem; }
+.geo-results h2 { margin-top: 0; }
+.geo-results p { font-size: 0.8rem; color: var(--muted); }
+#geo-result-count {
+  height: 3em;
+  line-height: 1.5;
+  overflow: auto;
+}
+.geo-results details { padding: 0.3rem 0; }
+.geo-results summary { display: list-item; cursor: pointer; }
+.geo-results label { display: inline-flex; align-items: baseline; gap: 0.4rem; overflow-wrap: anywhere; color: inherit; font: inherit; letter-spacing: normal; text-transform: none; cursor: pointer; }
+.geo-results .geo-collection { display: flex; margin: 0.4rem 0 0.4rem 1.5rem; }
+.geo-results input[type="checkbox"] {
+  appearance: auto;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: initial;
+  border-radius: 0;
+  box-shadow: none;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1050px) {
+  .workspace.geo-poly-workspace.has-results { grid-template-columns: 150px minmax(0, 1fr) 320px; }
+}
+@media (max-width: 760px) {
+  .workspace.geo-poly-workspace, .workspace.geo-poly-workspace.has-results { grid-template-columns: 1fr; grid-template-rows: auto 60vh auto; }
+  .geo-results { max-height: 50vh; }
+}
+
+.geo-poly-workspace > .filters {
+  grid-row: 1;
+}
+
+body[data-tab="geo-poly"] .topbar > :not(.brand) {
+  display: none;
+}
+
 .compare-workspace {
   display: grid;
   min-height: 0;

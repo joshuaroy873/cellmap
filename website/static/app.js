@@ -155,8 +155,10 @@ function setActiveTab(tab) {
   document.body.dataset.tab = tab;
   tabControls.mapPanel.hidden = tab !== "map";
   tabControls.comparePanel.hidden = tab !== "compare";
+  tabControls.geoPolyPanel.hidden = tab !== "geo-poly";
   tabControls.mapButton.classList.toggle("active", tab === "map");
   tabControls.compareButton.classList.toggle("active", tab === "compare");
+  tabControls.geoPolyButton.classList.toggle("active", tab === "geo-poly");
   closeCdf();
 
   if (tab === "map") {
@@ -173,7 +175,7 @@ function setActiveTab(tab) {
     } else {
       refreshOptionsAndData(false);
     }
-  } else {
+  } else if (tab === "compare") {
     if (!controls.start.value && !controls.end.value) {
       if (selectedCollections().length) applyCollectionRange();
       else applyDatabaseRange();
@@ -187,11 +189,15 @@ function setActiveTab(tab) {
           : "Select collection"
         : "Select database"
     );
+  } else {
+    setStatus("");
+    showGeoMap();
   }
 }
 
 tabControls.mapButton.addEventListener("click", () => setActiveTab("map"));
 tabControls.compareButton.addEventListener("click", () => setActiveTab("compare"));
+tabControls.geoPolyButton.addEventListener("click", () => setActiveTab("geo-poly"));
 
 controls.database.addEventListener("change", async () => {
   invalidateMapRequests();

@@ -26,6 +26,8 @@ const tabControls = {
   compareButton: $("tab-compare"),
   mapPanel: $("map-tab"),
   comparePanel: $("compare-tab"),
+  geoPolyButton: $("tab-geo-poly"),
+  geoPolyPanel: $("geo-poly-tab"),
 };
 
 const compareControls = {

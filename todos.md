@@ -7,7 +7,8 @@ schema changes, reimports, or server restarts.
 
 - Full CSV replacement: owner will supply the dump and decide retained columns.
   The single importer already supports `--rebuild`.
-- Geo-polygon search tab across all databases.
+- Geo-poly follow-ups: filters, export/sharing, and date-line support. Basic
+  cross-database polygon search is implemented; owner will manually test the UI.
 - Collection tags: indoor/outdoor/mixed/unknown; mobility
   static/walking/biking/driving/mixed/unknown.
 - Consider retaining `Data Technology` (Wi-Fi versus cellular); it is not in
@@ -30,7 +31,11 @@ schema changes, reimports, or server restarts.
 - Consolidated importer: build, validate, stop, swap, restart/check, rollback,
   and retained backups. No real reimport or live swap performed for this work.
 - Shared SQLite links outside the swapped dataset, with legacy migration.
-- One synthetic regression-test file retained for AI maintenance; 36 tests pass.
+- One synthetic regression-test file retained for AI maintenance, extended with
+  collection-bound and polygon-search coverage.
+- Geo-poly searches exact polygons, lists matching databases/collections, and
+  shows a capped preview. One combined box per collection is stored in DuckDB;
+  248 existing collections were backfilled without changing measurements.
 - Removed unchanged-Parquet fingerprinting; matching accepted snapshots are
   rewritten, while source-change detection and Parquet validation remain.
 

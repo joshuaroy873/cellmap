@@ -86,6 +86,7 @@ website/static/state.js    shared UI state and DOM handles
 website/static/api.js      JSON request helper
 website/static/filters.js  collection and filter controls
 website/static/map_view.js Leaflet map and selected-point details
+website/static/geo_view.js polygon drawing, region results, and point preview
 website/static/charts.js   summary, time-series, and CDF drawing
 website/static/compare_view.js   Compare-tab curve builder
 website/static/compare_charts.js Compare-tab grouped CDF charts
@@ -109,6 +110,7 @@ GET /api/options
 GET /api/measurements
 GET /api/cdf
 POST /api/compare/cdf
+POST /api/geo/search
 POST /api/shared-views
 GET /api/shared-views/<id>
 ```
@@ -147,7 +149,36 @@ Main panels:
 Map tab: colored measurement map, time-series chart, summary statistics,
 selected-point details, CDF modal
 Compare tab: per-curve filters and grouped CDF charts
+Geo-poly tab: polygon drawing, database/collection results, sampled map points
 ```
+
+Geo-poly initializes its map only when opened. Click Select polygon, place
+vertices, and click the first point to close and search. Shading is visible
+during drawing; results show only a thin, faint outline. The right pane uses
+plain HTML checkboxes and collapsed database disclosure lists, with indented
+collections. All matches are selected initially. Selection changes refresh
+the preview. The left filter pane remains empty and top-bar controls are hidden.
+
+Search counts include every matching measurement across all stored technologies
+and types. As on the Map tab, at most 6,000 points are sent to the browser;
+this is a preview limit, not a limit on searched rows or result counts.
+Points on polygon edges are included; missing/out-of-range GPS is excluded.
+Self-crossing/zero-area polygons and date-line-crossing edges are rejected.
+Polygons support up to 200 vertices. There is one concurrent search per process.
+
+`cellmap_geo.py` is a shared backend module, not a command or service. It stores
+one bounding box per database/collection (all technologies/types combined),
+skips nonoverlapping collections, then runs the exact polygon test on the server.
+It uses DuckDB's official spatial extension, installed once for the server user:
+
+```bash
+.venv/bin/python -c "import duckdb; duckdb.connect().execute('INSTALL spatial')"
+```
+
+The existing catalog was backfilled with 248 collection bounds without changing
+measurements. Future imports refresh them automatically. Missing bounds fall
+back to scanning the collection, never silently excluding it. See the
+[import guide](../scripts/README.md#collection-bounds).
 
 The collection dropdown supports multiple collections and Select all.
 Band values are technology-qualified, such as `b48` and `n48`.

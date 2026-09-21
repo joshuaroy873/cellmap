@@ -160,7 +160,8 @@ rollback using synthetic data, without touching live measurements or services:
 ```
 
 The single test file is retained for AI-assisted maintenance after code changes,
-not as a required step for every CSV import. All 36 tests passed on 2026-09-18.
+not as a required step for every CSV import. The tests also cover collection
+bounds, polygon validity, boundary points, selections, and capped previews.
 Service operations are mocked; these are not live deployment or browser tests.
 
 ## Canonical Columns
@@ -326,8 +327,32 @@ existing catalogs but is unused; rewritten partitions store an empty string.
 measurement_partitions
 processed_files
 collections
+collection_bounds
 ```
 
 `measurement_partitions` stores partition metadata and Parquet paths.
 `processed_files` stores raw-file hashes.
 `collections` stores collection-level time ranges and export metadata.
+
+## Collection bounds
+
+`collection_bounds` stores one rectangular extent per database/collection,
+combining all technologies and measurement types. Columns: `min_latitude`,
+`max_latitude`, `min_longitude`, `max_longitude`, and `located_row_count`.
+Only valid latitude/longitude pairs contribute; collections without them have
+null bounds and zero located rows. Bounds describe stored measurements after
+import filtering, not discarded CSV rows.
+
+Imports calculate these in the staged catalog, and validation compares them
+with the Parquet contents before activation. Database deletion removes its bounds.
+For existing data, the same single script can refresh only spatial metadata:
+
+```bash
+.venv/bin/python scripts/import_csvs.py --refresh-bounds
+```
+
+This does not reimport, rewrite Parquet, or manage services. It reads coordinates
+with a read-only connection, then briefly opens the catalog for writing and
+replaces bounds in a transaction. If another process holds a DuckDB read lock,
+the write can fail safely; stop readers before retrying. The import lock prevents
+overlap with this script's other data operations.

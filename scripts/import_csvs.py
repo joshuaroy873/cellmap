@@ -35,6 +35,7 @@ from cellmap_schema import (  # noqa: E402
     ROW_FILTERS,
     SCHEMA_VERSION,
 )
+from cellmap_geo import BOUNDS_TABLE, calculate_bounds, refresh_bounds, store_bounds
 ROOT = REPO_ROOT
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
 
@@ -52,6 +53,7 @@ CSV_NAME_ALIASES = {
 
 
 def initialize(con: duckdb.DuckDBPyConnection) -> None:
+    con.execute(BOUNDS_TABLE)
     con.execute("""
         CREATE TABLE IF NOT EXISTS measurement_partitions (
             database_name VARCHAR NOT NULL,
@@ -332,6 +334,7 @@ def delete_database(database: str) -> None:
                     "DELETE FROM measurement_partitions WHERE database_name = ?",
                     [database],
                 )
+                con.execute("DELETE FROM collection_bounds WHERE database_name = ?", [database])
                 for file_hash, measurement_type, schema_version in file_keys:
                     con.execute(
                         """
@@ -778,6 +781,7 @@ def build_dataset(
                 report["note"] = "No accepted rows; existing measurements were preserved"
             reports.append(report)
             print(json.dumps(report), flush=True)
+        refresh_bounds(con, ROOT, stage)
     return reports
 
 
@@ -820,6 +824,9 @@ def validate_dataset(stage: Path) -> dict:
         files = {p.resolve() for p in (stage / "measurements").rglob("*.parquet")}
         if files != referenced:
             raise ValueError("Uncataloged Parquet files found in staged dataset")
+        stored_bounds = con.execute("SELECT * FROM collection_bounds ORDER BY database_name, collection_name").fetchall()
+        if stored_bounds != calculate_bounds(con, ROOT, stage):
+            raise ValueError("Collection bounds do not match the staged measurements")
         collections = con.execute("SELECT database_name, collection_name FROM collections ORDER BY 1, 2").fetchall()
     return {"partitions": len(rows), "rows": total, "collections": collections}
 
@@ -984,7 +991,20 @@ def main() -> int:
     parser.add_argument("--service", action="append", help="Website systemd user service; repeat for every instance when using non-default names")
     parser.add_argument("--delete-database", metavar="NAME", help="Preview deletion of one database (separate from importing)")
     parser.add_argument("--yes", action="store_true", help="Confirm --delete-database")
+    parser.add_argument("--refresh-bounds", action="store_true", help="Refresh collection-wide spatial metadata from existing Parquet, without reimporting")
     args = parser.parse_args()
+    if args.refresh_bounds:
+        if args.paths or args.rebuild or args.check_only or args.date or args.allow_empty or args.service or args.delete_database or args.yes:
+            parser.error("--refresh-bounds is a separate metadata-only operation")
+        with import_lock():
+            with duckdb.connect(str(DB_PATH), read_only=True) as con:
+                con.execute("SET threads=2")
+                con.execute("SET memory_limit='1GB'")
+                rows = calculate_bounds(con, ROOT, ACTIVE)
+            with duckdb.connect(str(DB_PATH)) as con:
+                store_bounds(con, rows)
+            print(f"Stored bounds for {len(rows)} collections; measurements unchanged.")
+        return 0
     if args.delete_database:
         if args.paths or args.rebuild or args.check_only or args.date or args.allow_empty or args.service:
             parser.error("--delete-database cannot be combined with import options")

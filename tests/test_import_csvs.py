@@ -14,11 +14,94 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO / "scripts"), str(REPO / "website"), str(REPO)]
 import import_csvs as importer
 import server
+import cellmap_geo as geo
 from cellmap_schema import COMMON_COLUMNS, DERIVED_COLUMNS, MEASUREMENT_SCHEMAS
 from import_csvs import initialize
 
 
 class ImportTests(unittest.TestCase):
+    def geo_row(self, latitude, longitude, collection="sample"):
+        values = {"latitude": latitude, "longitude": longitude, "collection_name": collection}
+        return {aliases[0]: values[name] for name, _, aliases in COMMON_COLUMNS if name in values}
+
+    def search_geo(self, polygon=None, selected=None):
+        request = {"polygon": polygon or [[0, 0], [4, 0], [0, 4]]}
+        if selected is not None:
+            request["selected"] = selected
+        return geo.polygon_search(request, self.root, self.stage / "cellular.duckdb", self.stage)
+
+    def test_collection_bounds_combine_types_and_validate(self):
+        a = self.csv(kind="lte_radio", rows=[self.geo_row(1, 2), self.geo_row("", 4)])
+        b = self.csv(kind="nr_radio", rows=[self.geo_row(8, 9), self.geo_row(91, 3)])
+        importer.build_dataset(self.stage, [(a, "lte_radio"), (b, "nr_radio")])
+        with duckdb.connect(str(self.stage / "cellular.duckdb")) as con:
+            self.assertEqual(con.execute("SELECT * FROM collection_bounds").fetchall(),
+                             [("example", "sample", 1.0, 8.0, 2.0, 9.0, 2)])
+            con.execute("UPDATE collection_bounds SET min_latitude=0")
+        with self.assertRaisesRegex(ValueError, "Collection bounds"):
+            importer.validate_dataset(self.stage)
+
+    def test_geo_polygon_exact_boundary_and_collection_selection(self):
+        a = self.csv(kind="lte_radio", rows=[self.geo_row(1, 1), self.geo_row(3, 3),
+                     self.geo_row(0, 0), self.geo_row("", 1), self.geo_row(1, 1, "second")])
+        b = self.csv(kind="nr_radio", database="other", rows=[self.geo_row(1, 2)])
+        importer.build_dataset(self.stage, [(a, "lte_radio"), (b, "nr_radio")])
+        result = self.search_geo()
+        self.assertEqual(result["total"], 4)  # Includes boundary, excludes rectangle-only point.
+        self.assertEqual(len(result["collections"]), 3)
+        self.assertEqual(self.search_geo(selected=[["example", "sample"]])["total"], 2)
+        self.assertEqual(self.search_geo(selected=[])["total"], 0)
+        self.assertEqual(self.search_geo(selected=[["unknown", "sample"]])["total"], 0)
+
+    def test_geo_missing_bounds_falls_back_and_empty_gps_has_no_matches(self):
+        a = self.csv(kind="lte_radio", rows=[self.geo_row(1, 1), self.geo_row("", "", "no-gps")])
+        importer.build_dataset(self.stage, [(a, "lte_radio")])
+        with duckdb.connect(str(self.stage / "cellular.duckdb")) as con:
+            self.assertEqual(con.execute("SELECT located_row_count FROM collection_bounds WHERE collection_name='no-gps'").fetchone()[0], 0)
+            con.execute("DROP TABLE collection_bounds")
+        self.assertEqual(self.search_geo()["total"], 1)
+
+    def test_geo_disjoint_bounds_skip_files(self):
+        a = self.csv(kind="lte_radio", rows=[self.geo_row(40, 40)])
+        importer.build_dataset(self.stage, [(a, "lte_radio")])
+        self.assertEqual(self.search_geo()["total"], 0)
+
+    def test_geo_concave_polygon_excludes_notch(self):
+        a = self.csv(kind="lte_radio", rows=[self.geo_row(3, 0.5), self.geo_row(0.5, 3), self.geo_row(3, 3)])
+        importer.build_dataset(self.stage, [(a, "lte_radio")])
+        result = self.search_geo([[0, 0], [4, 0], [4, 1], [1, 1], [1, 4], [0, 4]])
+        self.assertEqual(result["total"], 2)
+
+    def test_bounds_refresh_cli_preserves_measurement_files(self):
+        path = self.csv()
+        importer.build_dataset(self.active, [(path, "lte_pdsch")])
+        parquet = importer.partition_path("example", "sample", "lte_pdsch")
+        before = parquet.read_bytes()
+        with duckdb.connect(str(self.active / "cellular.duckdb")) as con:
+            con.execute("DROP TABLE collection_bounds")
+        with patch.object(sys, "argv", ["import_csvs.py", "--refresh-bounds"]):
+            self.assertEqual(importer.main(), 0)
+        self.assertEqual(parquet.read_bytes(), before)
+        with duckdb.connect(str(self.active / "cellular.duckdb"), read_only=True) as con:
+            self.assertEqual(con.execute("SELECT count(*) FROM collection_bounds").fetchone()[0], 1)
+
+    def test_geo_invalid_polygons_are_rejected(self):
+        self.build()
+        for ring in [[[0, 0], [1, 1]], [[0, 0], [1, 1], [2, 2]],
+                     [[0, 0], [4, 4], [0, 4], [4, 0]],
+                     [[179, 0], [-179, 0], [179, 2]],
+                     [[0, 0], [1, float("nan")], [2, 2]],
+                     [[0, 0], [True, 1], [2, 2]]]:
+            with self.subTest(ring=ring), self.assertRaises(ValueError):
+                self.search_geo(ring)
+
+    def test_geo_preview_is_capped_but_counts_are_exact(self):
+        a = self.csv(kind="lte_radio", rows=[self.geo_row(1, 1)] * 6010)
+        importer.build_dataset(self.stage, [(a, "lte_radio")])
+        result = self.search_geo()
+        self.assertEqual(result["total"], 6010)
+        self.assertEqual(len(result["points"]), 6000)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="cellmap-rebuild-test-")
         self.addCleanup(self.temp.cleanup)

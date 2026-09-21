@@ -54,6 +54,9 @@
       <button id="tab-compare" class="tab-button" type="button" data-tab="compare">
         Compare
       </button>
+      <button id="tab-geo-poly" class="tab-button" type="button" data-tab="geo-poly">
+        Geo-poly
+      </button>
     </nav>
 
     <main id="map-tab" class="workspace tab-panel">
@@ -150,6 +153,23 @@
           </dl>
         </article>
       </section>
+    </main>
+
+    <main id="geo-poly-tab" class="workspace geo-poly-workspace tab-panel" hidden>
+      <aside class="filters" aria-label="Geo-poly filters"></aside>
+      <section class="geo-map-panel" aria-label="Geo-poly workspace">
+        <div class="geo-toolbar">
+          <button id="geo-draw" type="button">Select polygon</button>
+          <button id="geo-clear" type="button">Clear</button>
+          <span id="geo-status" role="status">Select polygon, then click the map to place vertices.</span>
+        </div>
+        <div id="geo-map" aria-label="Polygon search map"></div>
+      </section>
+      <aside id="geo-results" class="geo-results" aria-label="Region search results" hidden>
+        <h2>Region results</h2>
+        <p id="geo-result-count" role="status"></p>
+        <div id="geo-result-groups"></div>
+      </aside>
     </main>
 
     <main id="compare-tab" class="compare-workspace tab-panel" hidden>
@@ -254,6 +274,7 @@
   <script src="/charts.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/filters.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/map_view.js?v=20260917-carto-key"></script>
+  <script src="/geo_view.js"></script>
   <script src="/compare_charts.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/compare_view.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/share_view.js?v=20260821-shared-views"></script>

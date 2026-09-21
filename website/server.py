@@ -36,6 +36,7 @@ from cellmap_schema import (  # noqa: E402
     NULL_FILTER_VALUE,
 )
 from compare_api import compare_cdf_payload  # noqa: E402
+from cellmap_geo import polygon_search
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
 SHARE_DB_PATH = ROOT / "data/shared_views.sqlite3"
@@ -941,6 +942,8 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = compare_cdf_payload(
                     self.read_json_body(), ROOT, DB_PATH, MEASUREMENTS
                 )
+            elif parsed.path == "/api/geo/search":
+                payload = polygon_search(self.read_json_body(), ROOT, DB_PATH, DB_PATH.parent)
             elif parsed.path == "/api/shared-views":
                 payload = create_shared_view_payload(self.read_json_body())
             else:
