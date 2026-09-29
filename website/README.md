@@ -7,7 +7,7 @@ DuckDB catalog and Parquet partitions in `data/_processed`.
 
 There is no frontend build step.
 
-This guide describes local source as of 2026-09-18, including uncommitted changes;
+This guide describes local source as of 2026-09-28, including uncommitted changes;
 running processes may not yet have loaded these changes.
 
 ## Run
@@ -35,15 +35,20 @@ These commands start foreground processes. Do not start a duplicate if the
 website is already service-managed. Safe importer activation requires a Linux
 systemd user manager and refuses unmanaged website processes.
 
-Last known setup on `ghoshlab2` (inspect before restarting):
+Configured setup on `ghoshlab2` (runtime status not rechecked for this doc update):
 
-- Public URL: `https://cellmap.joshuaroy873.com`.
-- `cellmap-server-8000.service`: `127.0.0.1:8000`.
-- `cellmap-repo-preview-8001.service`: `100.85.31.36:8001`, accessible through
-  Tailscale at `http://100.85.31.36:8001`.
+- Public system unit `cellmap.service`: `127.0.0.1:8000`, exposed through
+  Cloudflare at `https://cellmap.joshuaroy873.com`.
+- Preview user unit `cellmap-local.service`: `100.85.31.36:8001`, accessible over
+  Tailscale at `http://ghoshlab2.taila7dab6.ts.net:8001/`. Use the full hostname
+  for CARTO referrer restrictions, not the short hostname or IP.
 
-These were transient user services; stopped units may disappear. The importer
-captures and recreates active transient instances during activation.
+Ask the owner before every restart; no automatic restart after edits. Backend
+changes require a restart; static changes require a page refresh. Both services
+share this repo/data, so the preview is not isolated. See [service.md](../service.md).
+The old transient user units are obsolete, but the importer still defaults to
+them and only manages user services. Its activation integration must be adapted
+before use with this deployment; `--service cellmap.service` alone is insufficient.
 
 ## Basemap key
 
@@ -86,7 +91,7 @@ website/static/state.js    shared UI state and DOM handles
 website/static/api.js      JSON request helper
 website/static/filters.js  collection and filter controls
 website/static/map_view.js Leaflet map and selected-point details
-website/static/geo_view.js polygon drawing, region results, and point preview
+website/static/geo_view.js polygon drawing, filters, region results, and square preview
 website/static/charts.js   summary, time-series, and CDF drawing
 website/static/compare_view.js   Compare-tab curve builder
 website/static/compare_charts.js Compare-tab grouped CDF charts
@@ -111,6 +116,7 @@ GET /api/measurements
 GET /api/cdf
 POST /api/compare/cdf
 POST /api/geo/search
+GET /api/geo/options
 POST /api/shared-views
 GET /api/shared-views/<id>
 ```
@@ -124,6 +130,7 @@ Payload limits:
 
 ```text
 map points          6,000 max
+Geo-poly squares    6,000 max (counts include all matches)
 time-series buckets about 500
 CDF points          401 quantile points
 Compare curves      20 max per request
@@ -149,20 +156,118 @@ Main panels:
 Map tab: colored measurement map, time-series chart, summary statistics,
 selected-point details, CDF modal
 Compare tab: per-curve filters and grouped CDF charts
-Geo-poly tab: polygon drawing, database/collection results, sampled map points
+Geo-poly tab: polygon drawing, filters, database/collection results, aggregated squares
 ```
 
-Geo-poly initializes its map only when opened. Click Select polygon, place
-vertices, and click the first point to close and search. Shading is visible
+Geo-poly initializes its map only when opened. Click Search polygon, place
+vertices, and click the first point to close. A polygon is optional: without one,
+Search covers all stored locations worldwide, not just the viewport (within
+Web Mercator's latitude limits). The polygon button reads Restart polygon while
+drawing and after closing, until a search succeeds. After success it reads
+Search polygon and is disabled; Search becomes Reset search. Reset clears
+the polygon, results, and collection selection, retains filters/grid size, and
+re-enables drawing and Search. There is no separate Clear polygon button.
+Failed searches use one Retry search toolbar button, not an extra inline button.
+Retry search clears the failed search, polygon, and results, returning to idle
+Search polygon / Search controls. It preserves left-pane filters and grid size,
+does not start drawing, and does not automatically resubmit a query.
+Editing any left-pane value reactivates Search without clearing the polygon;
+the next Search creates a new primary search and selects all its result collections.
+Choose filters before or after drawing, then click Search to submit them together. Shading is visible
 during drawing; results show only a thin, faint outline. The right pane uses
 plain HTML checkboxes and collapsed database disclosure lists, with indented
 collections. All matches are selected initially. Selection changes refresh
-the preview. The left filter pane remains empty and top-bar controls are hidden.
+the preview. The left pane filters measurement type, operator, band,
+and metric; Technology/PCI/SSB dropdowns are not offered here. All technologies
+are included unless a technology-qualified band is selected. Top-bar controls are hidden.
+Filter choices load independently of the polygon from dataset-wide metadata.
+The server reuses this small metadata list until the catalog changes; the page
+loads it once per session (refresh the page after importing data). Dropdown
+changes are local and do not run measurement queries; click Search to apply.
+Choices are not guarantees of matches inside your polygon. Metrics come from
+the schema and may have no values for a particular selection.
 
-Search counts include every matching measurement across all stored technologies
-and types. As on the Map tab, at most 6,000 points are sent to the browser;
-this is a preview limit, not a limit on searched rows or result counts.
+Filters and the polygon are applied before aggregation. Manually select square
+**side lengths** of 1 m, 10 m, 100 m (default), 1 km, 10 km, or 100 km, in Web Mercator
+projected meters (not ground-distance meters). Click Search to apply changes.
+Zooming, panning, and reopening the tab do not query measurements or change
+grid size. Choose Average or Maximum.
+Average is the arithmetic mean of stored
+values, including dBm, weighted by measurement count when collections overlap.
+Only finite values of the selected metric contribute. A shared square combines
+all selected collections; edge squares can extend beyond the drawn polygon,
+but their contributing measurements cannot.
+
+At most 6,000 squares are displayed: from the current viewport with a polygon,
+or worldwide without a polygon. When needed, each
+collection receives a quota proportional to its filtered occupied-square count
+in that preview area; cells are selected by a deterministic coordinate hash. For
+disjoint coverage of 4,000 and 8,000 cells, quotas are 2,000 and 4,000. Overlaps
+are displayed once and spare slots are filled from remaining cells, so exact
+per-collection displayed proportions are not guaranteed for overlapping data.
+This is a sample, not a guarantee of uniform geographic coverage. The viewport
+is captured when a search runs; moving the map leaves those squares unchanged.
+To refine a sample, reset and draw a smaller polygon for a new search.
+Counts include all area/filter
+matches, not just the preview. Result collection checkboxes still trigger a
+debounced search when there are no pending filter edits.
+
+The result summary uses two lines:
+
+```text
+1,140,565 selected measurements
+250/250 squares in the searched view
+```
+
+The first line counts every finite-metric measurement matching the active
+primary or exploration filters, checked collections, and original area. It is
+not limited by the viewport or 6,000-square sample. The second line is displayed
+squares / eligible squares in the captured preview area; worldwide searches
+say `worldwide` instead. Changing only grid size does not change the first count.
+Exploration updates both counts for its selections; returning to primary
+requeries the primary counts. The fixed-height summary prevents list shifting.
+
+The right pane has one Select all checkbox below the measurement summary and
+above the collection list. Uncheck it to deselect all; a mixed state indicates
+partial selection. Clicking a square selects all
+collections with filter-matching measurements in it and deselects other listed
+collections, then recomputes. This includes currently unchecked collections at
+that location; the selection applies to entire collections, not just that cell.
+Square values always combine every matching measurement from selected
+collections/databases: Average is sum/count, Maximum is the largest value.
+Sampling selects which squares to display, never which measurements to aggregate.
+
+At the bottom of the right pane, **Explore results** offers a classic single-value
+grid-size select and floating checkbox menus for operators and bands. Menu
+summaries show the selection count. Menus close on outside click or Escape and
+open above the control when space below is limited. The choices include
+all operators/bands with finite values for the primary metric in the primary
+result collections that are currently checked, within the original area, not just those allowed by the primary
+operator/band filters. Values are unique across those collections and refresh
+immediately when collection checkboxes change, using per-collection choice
+metadata (no extra lookup query). With no collections selected, the menus are
+empty. Unchecked operator/band choices are remembered when their collections
+are deselected and reselected. Initially all choices are checked. Operators are ORed
+together, bands are ORed together, and the two groups are ANDed; selecting none
+in either group gives no matches. Unknown values are explicitly selectable.
+Changes apply automatically after a 300 ms debounce, grouping rapid edits into
+one query. There is no Apply button. Outdated responses are ignored.
+The area, captured preview viewport, measurement type, metric, and aggregation
+stay fixed. Collection checkboxes continue to apply; zero-match collections stay
+listed so they can be selected again. Left-pane controls are not changed.
+Return to primary results reruns the original request with its original grid,
+operator/band settings, and all original primary selections. This button is
+disabled until an exploration query succeeds, while a query is running, and
+again after returning to primary results. Only request
+settings and choice metadata are retained, not grid results; changed underlying
+data can therefore change the result when replayed. Left-pane edits invalidate
+the previous exploration and create a new primary search when Search is clicked.
+
+Every search recomputes on the server without caching point/grid results or
+reusing Map results. The Map tab itself is unchanged.
+
 Points on polygon edges are included; missing/out-of-range GPS is excluded.
+Latitudes outside Web Mercator's approximately ±85.05113° range are excluded.
 Self-crossing/zero-area polygons and date-line-crossing edges are rejected.
 Polygons support up to 200 vertices. There is one concurrent search per process.
 
@@ -180,7 +285,7 @@ measurements. Future imports refresh them automatically. Missing bounds fall
 back to scanning the collection, never silently excluding it. See the
 [import guide](../scripts/README.md#collection-bounds).
 
-The collection dropdown supports multiple collections and Select all.
+On the Map tab, the collection dropdown supports multiple collections and Select all.
 Band values are technology-qualified, such as `b48` and `n48`.
 Band, PCI, and SSB options show matching row counts.
 
@@ -212,13 +317,14 @@ summary statistics, time-series, and CDF queries when other filters match.
 
 ## Notes
 
-`scripts/import_csvs.py /path/to/csv-folder` builds and validates separately,
-then briefly stops/restarts the configured website services for the swap.
+`scripts/import_csvs.py /path/to/csv-folder` implements separate build/validation
+followed by stop/swap/restart for supported user services. Its current service
+integration does not match this deployment; see the warning above and service.md.
 Use `--check-only` to validate without changing the active dataset.
 Normal imports preserve unrelated partitions; `--rebuild` replaces the entire
 dataset using supplied CSVs. The safe-import workflow and stable SQLite location
-have not yet been exercised on the live dataset. Existing processes may still
-use the old share-store location until restart.
+have not been verified through a live rebuild/swap for this work. Startup handles
+legacy share migration; do not infer a process's loaded version from source files.
 
 The importer can also remove a complete local database. Stop the server first,
 preview the removal with:

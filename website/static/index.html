@@ -156,19 +156,63 @@
     </main>
 
     <main id="geo-poly-tab" class="workspace geo-poly-workspace tab-panel" hidden>
-      <aside class="filters" aria-label="Geo-poly filters"></aside>
+      <aside class="filters" aria-label="Geo-poly filters">
+        <label>Grid size
+          <select id="geo-square-size">
+            <option value="1">1 m × 1 m</option>
+            <option value="10">10 m × 10 m</option>
+            <option value="100" selected>100 m × 100 m</option>
+            <option value="1000">1 km × 1 km</option>
+            <option value="10000">10 km × 10 km</option>
+            <option value="100000">100 km × 100 km</option>
+          </select>
+        </label>
+        <span class="geo-grid-note">Web Mercator projected meters. Click Search to apply; zooming and panning do not query data.</span>
+        <div class="panel-heading">
+          <div><span class="eyebrow">Filters</span><h1>Measurement view</h1></div>
+          <button id="geo-clear-filters" class="text-button" type="button">Clear</button>
+        </div>
+        <label>Measurement type<select id="geo-measurement"></select></label>
+        <label>Operator<select id="geo-operator"></select></label>
+        <label>Band<select id="geo-band"></select></label>
+        <label>Metric<select id="geo-metric"></select></label>
+        <label>Aggregate<select id="geo-aggregation">
+          <option value="average">Average</option><option value="maximum">Maximum</option>
+        </select></label>
+      </aside>
       <section class="geo-map-panel" aria-label="Geo-poly workspace">
         <div class="geo-toolbar">
-          <button id="geo-draw" type="button">Select polygon</button>
-          <button id="geo-clear" type="button">Clear</button>
-          <span id="geo-status" role="status">Select polygon, then click the map to place vertices.</span>
+          <button id="geo-draw" type="button">Search polygon</button>
+          <button id="geo-search" type="button" disabled>Search</button>
+          <span id="geo-status" role="status">Choose filters and click Search for worldwide results, or draw a polygon.</span>
         </div>
         <div id="geo-map" aria-label="Polygon search map"></div>
+        <div id="geo-legend" class="geo-grid-legend" hidden>
+          <span id="geo-legend-label"></span><div class="legend-scale"></div>
+          <div class="geo-legend-range"><span id="geo-min"></span><span id="geo-max"></span></div>
+        </div>
       </section>
       <aside id="geo-results" class="geo-results" aria-label="Region search results" hidden>
         <h2>Region results</h2>
         <p id="geo-result-count" role="status"></p>
+        <label class="collection-option">
+          <input id="geo-select-all" type="checkbox">
+          <span>Select all</span>
+        </label>
         <div id="geo-result-groups"></div>
+        <section id="geo-explore" class="geo-explore" hidden>
+          <h3>Explore results</h3>
+          <p>Same area, measurement type and metric; all available operators/bands in the primary result collections.</p>
+          <label>Grid size<select id="geo-explore-size">
+            <option value="1">1 m × 1 m</option><option value="10">10 m × 10 m</option>
+            <option value="100">100 m × 100 m</option><option value="1000">1 km × 1 km</option>
+            <option value="10000">10 km × 10 km</option><option value="100000">100 km × 100 km</option>
+          </select></label>
+          <details class="geo-explore-menu"><summary id="geo-explore-operators-summary">Operators</summary><div id="geo-explore-operators"></div></details>
+          <details class="geo-explore-menu"><summary id="geo-explore-bands-summary">Bands</summary><div id="geo-explore-bands"></div></details>
+          <button id="geo-explore-restore" type="button" disabled>Return to primary results</button>
+          <p id="geo-explore-status" role="status"></p>
+        </section>
       </aside>
     </main>
 

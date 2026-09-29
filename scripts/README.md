@@ -1,5 +1,8 @@
 # CSV Import
 
+Reviewed against local source on 2026-09-28. No live reimport or activation was
+performed for this documentation update.
+
 There is one data-management command: `scripts/import_csvs.py`.
 It scans a folder recursively, recognizes supported CSV names, validates and
 filters the rows, and imports them into the website's dataset.
@@ -9,6 +12,14 @@ been used to reimport or swap the live dataset. Separate staging, initialization
 summary, and rebuild scripts are no longer needed.
 
 ## Everyday commands
+
+Deployment warning: the importer still defaults to obsolete transient user
+services and cannot manage the public system unit `cellmap.service`. The active
+deployment configuration uses that unit plus user unit `cellmap-local.service`.
+Adapt service integration before activating imports; passing a different unit
+name does not fix the system/user mismatch. Use `--check-only` to build/validate
+without activation. Ask the owner before any service stop/restart. See
+[service.md](../service.md#importer-integration-warning).
 
 Import a folder, preserving unrelated databases and collections:
 
@@ -161,7 +172,9 @@ rollback using synthetic data, without touching live measurements or services:
 
 The single test file is retained for AI-assisted maintenance after code changes,
 not as a required step for every CSV import. The tests also cover collection
-bounds, polygon validity, boundary points, selections, and capped previews.
+bounds, polygon validity, worldwide searches, square aggregation across
+collections/databases, proportional quotas, exploration scoping/multi-select
+validation, and capped previews. The latest run passed all 54 tests.
 Service operations are mocked; these are not live deployment or browser tests.
 
 ## Canonical Columns
@@ -356,3 +369,7 @@ with a read-only connection, then briefly opens the catalog for writing and
 replaces bounds in a transaction. If another process holds a DuckDB read lock,
 the write can fail safely; stop readers before retrying. The import lock prevents
 overlap with this script's other data operations.
+
+Geo-poly's grid sizes, sampling, exploration menus, and previews are query-time
+features; they do not require reimporting CSVs or storing grid caches. Bounds
+remain one box per collection across all types. See the [website guide](../website/README.md).

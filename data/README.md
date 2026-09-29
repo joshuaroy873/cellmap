@@ -1,5 +1,8 @@
 # Data
 
+Reviewed against local source on 2026-09-28. No data was imported, deleted, or
+rewritten during this documentation update.
+
 This folder is for local measurement data and processed outputs. Keep raw CSVs,
 DuckDB files, and Parquet files here; do not commit them to GitHub.
 
@@ -19,6 +22,10 @@ From the repo root, use `.venv/bin/python scripts/import_csvs.py /path/to/csv-fo
 import CSVs. Inputs may also be outside this repository; they are not moved or
 deleted. Add `--rebuild` only when replacing the entire dataset, or `--check-only`
 to validate without activating. See the [import guide](../scripts/README.md).
+Before activation, address the importer/service mismatch documented in
+[service.md](../service.md#importer-integration-warning). Its default old user
+units do not match public `cellmap.service` plus user `cellmap-local.service`.
+Use `--check-only` for build/validation; ask the owner before any service restart.
 
 Supported export date folder formats:
 
@@ -70,3 +77,16 @@ the importer-safety work.
 
 Confirmed database deletion does not use swap/rollback safety. External input
 CSVs, shared links, and retained backups are not deleted.
+
+## Geographic queries
+
+The catalog stores `collection_bounds`: one bounding box per database/collection
+across all technologies/types. Imports refresh it; the sole import script also
+offers `--refresh-bounds` without rewriting measurements. Missing bounds fall
+back to scanning rather than excluding collections.
+
+Geo-poly computes Web Mercator squares from filtered measurements on demand.
+No point/grid results or per-grid-size datasets are persisted. Only small filter
+metadata and primary request settings are reused. Operator/band choices in
+exploration are deduplicated from checked primary-result collections, within
+the original area and finite metric values. See the [website guide](../website/README.md).

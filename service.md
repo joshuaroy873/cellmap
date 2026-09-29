@@ -6,7 +6,14 @@ plain JavaScript frontend. Repository on `ghoshlab2`:
 
 ## Website services
 
+Ask the owner before restarting any server/service. Do not restart automatically
+after code edits; the owner normally performs the restart for manual testing.
+
 Deployment configured on 2026-09-18:
+
+Documentation reviewed against local source on 2026-09-28. This is the recorded
+configuration, not a fresh service-status/reboot check. No services were
+restarted as part of this documentation update.
 
 | Purpose | Service | Listener | URL |
 | --- | --- | --- | --- |
@@ -64,6 +71,10 @@ curl --fail http://100.85.31.36:8001/api/health
 After editing a service file, run `sudo systemctl daemon-reload` for the public
 service or `systemctl --user daemon-reload` for the local service, then restart
 that service. A Git pull alone does not restart the Python processes.
+Frontend-only changes normally need a page refresh. Geo-poly's recent API and
+per-collection exploration-metadata changes also require the backend to be
+restarted by the owner before testing; the loaded version has not been verified
+here. Never restart either service automatically after editing documentation/code.
 
 ## Importer integration warning
 

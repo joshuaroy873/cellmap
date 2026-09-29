@@ -1,13 +1,13 @@
 # Remaining work
 
-Reviewed against local source on 2026-09-18. These notes do not authorize
+Reviewed against local source on 2026-09-28. These notes do not authorize
 schema changes, reimports, or server restarts.
 
 ## Planned, not implemented
 
 - Full CSV replacement: owner will supply the dump and decide retained columns.
   The single importer already supports `--rebuild`.
-- Geo-poly follow-ups: filters, export/sharing, and date-line support. Basic
+- Geo-poly follow-ups: export/sharing and date-line support. Filtered
   cross-database polygon search is implemented; owner will manually test the UI.
 - Collection tags: indoor/outdoor/mixed/unknown; mobility
   static/walking/biking/driving/mixed/unknown.
@@ -15,6 +15,10 @@ schema changes, reimports, or server restarts.
   the canonical schema.
 
 ## Observations to revisit
+
+- Importer activation still targets obsolete transient user services, not the
+  public system unit plus local user unit. Update this integration before a live
+  import/swap; `--check-only` remains available. See service.md.
 
 - Missing GPS (previous example: `NH_5777`): rows cannot be mapped but remain
   eligible for summaries/charts. Decide whether to show a missing-location count.
@@ -34,7 +38,22 @@ schema changes, reimports, or server restarts.
 - One synthetic regression-test file retained for AI maintenance, extended with
   collection-bound and polygon-search coverage.
 - Geo-poly searches exact polygons, lists matching databases/collections, and
-  shows a capped preview. One combined box per collection is stored in DuckDB;
+  shows up to 6,000 aggregated Web Mercator squares with proportional collection
+  sampling and explicit viewport refinement via Search. Manual side lengths are
+  1/10/100/1000/10000/100000 projected meters (default 100); zoom/pan do not query data;
+  Average/Maximum follows filters, with no point/grid result caching.
+  Polygon is optional for worldwide searches. Square clicks select matching
+  collections; the right pane has a Select all checkbox below the summary.
+  Explore results supports grid size and multi-operator/multi-band selections
+  across checked primary result collections using auto-applying checkbox menus
+  for operators/bands and a classic single-value grid-size select
+  (300 ms debounce), plus a fresh return-to-primary query. Return is disabled
+  until a secondary query has completed and after primary results are restored.
+  Left-pane edits reactivate Search while preserving the polygon.
+  Retry search clears failed polygon/results to idle controls, preserving left
+  settings. Summary has two lines: all matching selected measurements, then
+  displayed/eligible squares. Exploration counts reflect exploration filters.
+  One combined box per collection is stored in DuckDB;
   248 existing collections were backfilled without changing measurements.
 - Removed unchanged-Parquet fingerprinting; matching accepted snapshots are
   rewritten, while source-change detection and Parquet validation remain.

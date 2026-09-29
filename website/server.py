@@ -36,7 +36,7 @@ from cellmap_schema import (  # noqa: E402
     NULL_FILTER_VALUE,
 )
 from compare_api import compare_cdf_payload  # noqa: E402
-from cellmap_geo import polygon_search
+from cellmap_geo import polygon_search, geo_options
 STATIC = Path(__file__).resolve().parent / "static"
 DB_PATH = ROOT / "data/_processed/cellular.duckdb"
 SHARE_DB_PATH = ROOT / "data/shared_views.sqlite3"
@@ -911,6 +911,8 @@ class Handler(SimpleHTTPRequestHandler):
                 payload = catalog_payload()
             elif parsed.path == "/api/options":
                 payload = options_payload(query)
+            elif parsed.path == "/api/geo/options":
+                payload = geo_options(ROOT, DB_PATH, DB_PATH.parent)
             elif parsed.path == "/api/measurements":
                 payload = measurement_payload(query)
             elif parsed.path == "/api/cdf":
