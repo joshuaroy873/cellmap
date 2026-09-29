@@ -327,6 +327,9 @@ label {
 .geo-results h2 { margin-top: 0; }
 .geo-explore { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--line); }
 .geo-results .geo-explore label { display: flex; margin: 0.4rem 0; }
+.geo-results .geo-explore-grid { align-items: center; gap: 0.6rem; }
+.geo-explore-grid > span { white-space: nowrap; flex-shrink: 0; }
+.geo-explore-grid > select { width: 0; min-width: 0; flex: 1; }
 .geo-explore-menu > div { position: fixed; z-index: 1500; max-height: 12rem; overflow: auto; padding: 0.5rem; border: 1px solid var(--line); border-radius: 7px; background: #fff; box-shadow: 0 4px 14px #0002; }
 .geo-results .geo-explore-menu > summary { display: block; list-style: none; padding: 0.5rem; border: 1px solid var(--line); border-radius: 7px; background: #fff; }
 .geo-explore-menu > summary::-webkit-details-marker { display: none; }

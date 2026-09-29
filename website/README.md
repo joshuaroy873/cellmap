@@ -188,7 +188,7 @@ Choices are not guarantees of matches inside your polygon. Metrics come from
 the schema and may have no values for a particular selection.
 
 Filters and the polygon are applied before aggregation. Manually select square
-**side lengths** of 1 m, 10 m, 100 m (default), 1 km, 10 km, or 100 km, in Web Mercator
+**side lengths** of 1 m, 10 m, 100 m, 1 km, 10 km, or 100 km (default), in Web Mercator
 projected meters (not ground-distance meters). Click Search to apply changes.
 Zooming, panning, and reopening the tab do not query measurements or change
 grid size. Choose Average or Maximum.
@@ -247,7 +247,10 @@ operator/band filters. Values are unique across those collections and refresh
 immediately when collection checkboxes change, using per-collection choice
 metadata (no extra lookup query). With no collections selected, the menus are
 empty. Unchecked operator/band choices are remembered when their collections
-are deselected and reselected. Initially all choices are checked. Operators are ORed
+are deselected and reselected. After a primary search (and after returning to
+primary results), the exploration grid/operator/band selections match the primary
+request. A primary All filter checks all available values; a specific filter
+checks only that value, while other available choices remain visible. Operators are ORed
 together, bands are ORed together, and the two groups are ANDed; selecting none
 in either group gives no matches. Unknown values are explicitly selectable.
 Changes apply automatically after a 300 ms debounce, grouping rapid edits into

@@ -365,14 +365,26 @@ function initializeGeoExploration() {
   $("geo-explore").hidden = false;
   $("geo-explore-size").value = String(geoPrimary.payload.square_size);
   geoPrimary.optionExclusions = {operators: new Set(), bands: new Set()};
+  for (const [field, primaryField] of [["operators", "operator"], ["bands", "band"]]) {
+    const selected = geoPrimary.payload[primaryField];
+    if (selected == null || selected === "all") continue;
+    for (const row of geoPrimary.options) {
+      const value = geoExplorationValue(row, field);
+      if (value !== selected) geoPrimary.optionExclusions[field].add(value);
+    }
+  }
   refreshGeoExplorationChoices();
+}
+
+function geoExplorationValue(row, field) {
+  return field === "operators" ? row[3] ?? "__null__"
+    : row[4] == null ? "__null__" : `${row[2]}:${row[4]}`;
 }
 
 function refreshGeoExplorationChoices() {
   const rows = geoPrimary.options.filter(row => !geoExcluded.has(geoKey(row[0], row[1])));
   for (const field of ["operators", "bands"]) {
-    const values = [...new Set(rows.map(row => field === "operators"
-      ? row[3] ?? "__null__" : row[4] == null ? "__null__" : `${row[2]}:${row[4]}`))];
+    const values = [...new Set(rows.map(row => geoExplorationValue(row, field)))];
     values.sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
     const fragment = document.createDocumentFragment();
     for (const value of values) {
@@ -395,7 +407,10 @@ function updateGeoExplorationSummaries() {
   for (const [field, label] of [["operators", "Operators"], ["bands", "Bands"]]) {
     const selected = geoExplorationSelection(field);
     const total = $("geo-explore-" + field).querySelectorAll("input").length;
-    const value = !selected.length ? "None" : selected.length === total ? "All" : `${selected.length} selected`;
+    const single = selected[0] === "__null__" ? "Unknown" : field === "bands"
+      ? (selected[0]?.startsWith("LTE:") ? "b" : "n") + selected[0]?.split(":")[1] : selected[0];
+    const value = !selected.length ? "None" : selected.length === 1 ? single
+      : selected.length === total ? "All" : `${selected.length} selected`;
     $("geo-explore-" + field + "-summary").textContent = `${label}: ${value}`;
   }
 }

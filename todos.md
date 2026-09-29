@@ -40,7 +40,7 @@ schema changes, reimports, or server restarts.
 - Geo-poly searches exact polygons, lists matching databases/collections, and
   shows up to 6,000 aggregated Web Mercator squares with proportional collection
   sampling and explicit viewport refinement via Search. Manual side lengths are
-  1/10/100/1000/10000/100000 projected meters (default 100); zoom/pan do not query data;
+  1/10/100/1000/10000/100000 projected meters (default 100000); zoom/pan do not query data;
   Average/Maximum follows filters, with no point/grid result caching.
   Polygon is optional for worldwide searches. Square clicks select matching
   collections; the right pane has a Select all checkbox below the summary.

@@ -191,7 +191,7 @@ def polygon_search(request, root, db_path, dataset):
     metric = request.get("metric")
     if metric is not None and (not isinstance(metric, str) or metric not in METRICS[category]):
         raise ValueError("Unknown metric for this measurement type")
-    size = request.get("square_size", 100)
+    size = request.get("square_size", 100000)
     if isinstance(size, bool) or size not in (1, 10, 100, 1000, 10000, 100000):
         raise ValueError("Square side length must be 1, 10, 100, 1000, 10000, or 100000 meters")
     aggregation = request.get("aggregation", "average")

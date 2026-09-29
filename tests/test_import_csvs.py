@@ -124,7 +124,7 @@ class ImportTests(unittest.TestCase):
         subset = self.search_geo(metric="rsrp_dbm", technology="NR", operator="A", band="NR:78")
         self.assertEqual(subset["total"], 3)
         self.assertAlmostEqual(subset["squares"][0][2], -220 / 3)
-        self.assertEqual(subset["square_size"], 100)
+        self.assertEqual(subset["square_size"], 100000)
         maximum = self.search_geo(metric="rsrp_dbm", operator="A", aggregation="maximum")
         self.assertEqual(maximum["squares"][0][2], -40)
         self.assertEqual(self.search_geo(metric="rsrp_dbm", operator="absent")["total"], 0)
