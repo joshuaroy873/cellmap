@@ -7,8 +7,9 @@ DuckDB catalog and Parquet partitions in `data/_processed`.
 
 There is no frontend build step.
 
-This guide describes local source as of 2026-09-28, including uncommitted changes;
-running processes may not yet have loaded these changes.
+This guide describes source at `b79c7e6` as reviewed on 2026-09-28. The owner
+reported pushing the implementation; the tracked tree was clean before this
+documentation update. Running processes may not have loaded that revision.
 
 ## Run
 
@@ -192,11 +193,18 @@ Filters and the polygon are applied before aggregation. Manually select square
 projected meters (not ground-distance meters). Click Search to apply changes.
 Zooming, panning, and reopening the tab do not query measurements or change
 grid size. Choose Average or Maximum.
+The left-pane note reads only `Web Mercator projected meters.`
 Average is the arithmetic mean of stored
 values, including dBm, weighted by measurement count when collections overlap.
 Only finite values of the selected metric contribute. A shared square combines
 all selected collections; edge squares can extend beyond the drawn polygon,
 but their contributing measurements cannot.
+
+Square hover text is compact: `Average: -95.23 · 1,234 measurements` (or
+`Maximum`). Values use two decimals, without metric name/unit/grid size in the
+tooltip. Counts above 9,999 use approximate thousands with one decimal, such as
+`~12.3k measurements`; smaller counts remain exact. The legend identifies the
+metric/unit, and clicking the square still selects matching collections.
 
 At most 6,000 squares are displayed: from the current viewport with a polygon,
 or worldwide without a polygon. When needed, each
@@ -238,8 +246,9 @@ collections/databases: Average is sum/count, Maximum is the largest value.
 Sampling selects which squares to display, never which measurements to aggregate.
 
 At the bottom of the right pane, **Explore results** offers a classic single-value
-grid-size select and floating checkbox menus for operators and bands. Menu
-summaries show the selection count. Menus close on outside click or Escape and
+grid-size select and floating checkbox menus for operators and bands. Grid size's
+label and narrower select share one line. Menu summaries show a single selected
+value, All, None, or the selection count. Menus close on outside click or Escape and
 open above the control when space below is limited. The choices include
 all operators/bands with finite values for the primary metric in the primary
 result collections that are currently checked, within the original area, not just those allowed by the primary

@@ -1,6 +1,7 @@
 # Remaining work
 
-Reviewed against local source on 2026-09-28. These notes do not authorize
+Reviewed against committed source `b79c7e6` on 2026-09-28, after the owner's push.
+These notes do not authorize
 schema changes, reimports, or server restarts.
 
 ## Planned, not implemented
@@ -30,7 +31,7 @@ schema changes, reimports, or server restarts.
 - Timestamps remain timezone-naive; decide timezone semantics before changing
   import/display behavior.
 
-## Implemented locally; live rollout not verified
+## Implemented and committed; live rollout not verified
 
 - Consolidated importer: build, validate, stop, swap, restart/check, rollback,
   and retained backups. No real reimport or live swap performed for this work.
@@ -49,6 +50,9 @@ schema changes, reimports, or server restarts.
   for operators/bands and a classic single-value grid-size select
   (300 ms debounce), plus a fresh return-to-primary query. Return is disabled
   until a secondary query has completed and after primary results are restored.
+  Initial/restored exploration selections match primary filters. Grid label and
+  selector are on one line; tooltip shows only aggregate/value and count, with
+  approximate k-format above 9,999 measurements.
   Left-pane edits reactivate Search while preserving the polygon.
   Retry search clears failed polygon/results to idle controls, preserving left
   settings. Summary has two lines: all matching selected measurements, then

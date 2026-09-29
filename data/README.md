@@ -1,6 +1,7 @@
 # Data
 
-Reviewed against local source on 2026-09-28. No data was imported, deleted, or
+Reviewed against committed source `b79c7e6` on 2026-09-28, after the owner's push.
+No data was imported, deleted, or
 rewritten during this documentation update.
 
 This folder is for local measurement data and processed outputs. Keep raw CSVs,
@@ -90,3 +91,6 @@ No point/grid results or per-grid-size datasets are persisted. Only small filter
 metadata and primary request settings are reused. Operator/band choices in
 exploration are deduplicated from checked primary-result collections, within
 the original area and finite metric values. See the [website guide](../website/README.md).
+The default grid side is 100 km; changing that setting does not rewrite data.
+Committing code does not commit measurement files, root `.env`, or the ignored
+local `AI_CONTEXT.md`; their existing Git exclusions are unchanged.

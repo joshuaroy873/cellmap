@@ -1,3 +1,8 @@
+Historical brainstorm, reviewed against `b79c7e6` on 2026-09-28. Bounds,
+polygon/worldwide searches, filtered square aggregation and result exploration
+are implemented. Original notes below are retained, not a current specification;
+see website/README.md for behavior and todos.md for remaining work.
+
 Optional features later:
 - Filter by measurement type, technology, operator, and time.
 - Filter by indoor/outdoor and mobility once those tags exist.

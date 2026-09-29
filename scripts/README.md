@@ -1,6 +1,7 @@
 # CSV Import
 
-Reviewed against local source on 2026-09-28. No live reimport or activation was
+Reviewed against committed source `b79c7e6` on 2026-09-28, after the owner's push.
+No live reimport or activation was
 performed for this documentation update.
 
 There is one data-management command: `scripts/import_csvs.py`.
@@ -373,3 +374,5 @@ overlap with this script's other data operations.
 Geo-poly's grid sizes, sampling, exploration menus, and previews are query-time
 features; they do not require reimporting CSVs or storing grid caches. Bounds
 remain one box per collection across all types. See the [website guide](../website/README.md).
+The current 100 km default and initial exploration/primary filter alignment
+are UI/query settings, not changes to the import schema or stored measurements.

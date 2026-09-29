@@ -9,12 +9,6 @@ plain JavaScript frontend. Repository on `ghoshlab2`:
 Ask the owner before restarting any server/service. Do not restart automatically
 after code edits; the owner normally performs the restart for manual testing.
 
-Deployment configured on 2026-09-18:
-
-Documentation reviewed against local source on 2026-09-28. This is the recorded
-configuration, not a fresh service-status/reboot check. No services were
-restarted as part of this documentation update.
-
 | Purpose | Service | Listener | URL |
 | --- | --- | --- | --- |
 | Public website | System service `cellmap.service` | `127.0.0.1:8000` | https://cellmap.joshuaroy873.com |
