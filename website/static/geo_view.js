@@ -268,7 +268,8 @@ async function runGeoSearch(initial, retryAttempt = 0, savedPayload = null) {
       const southwest = L.CRS.EPSG3857.unproject(L.point(gx * size, gy * size));
       const northeast = L.CRS.EPSG3857.unproject(L.point((gx + 1) * size, (gy + 1) * size));
       const label = document.createElement("span");
-      label.textContent = `${result.aggregation === "average" ? "Average" : "Maximum"} ${result.label}: ${Number(value).toFixed(2)} ${result.unit} · ${count.toLocaleString()} measurements · ${size} m × ${size} m · Click to select matching collections`;
+      const measurementCount = count > 9999 ? `~${(count / 1000).toFixed(1)}k` : count.toLocaleString();
+      label.textContent = `${result.aggregation === "average" ? "Average" : "Maximum"}: ${Number(value).toFixed(2)} · ${measurementCount} measurements`;
       L.rectangle([southwest, northeast], {
         stroke: false, fillColor: colorFor(value, result.minimum, result.maximum), fillOpacity: 0.75,
         bubblingMouseEvents: false,
