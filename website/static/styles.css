@@ -81,7 +81,7 @@ label {
 
 .time-field {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 4.4em;
+  grid-template-columns: minmax(0, 1fr) 5.4em;
   gap: 0.3rem;
 }
 
