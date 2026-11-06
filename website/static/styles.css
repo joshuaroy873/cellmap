@@ -1053,6 +1053,30 @@ h2 {
   font-size: 0.78rem;
 }
 
+.collection-popout-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.collection-popout-toolbar input {
+  flex: 1 1 auto;
+  min-height: 2.1rem;
+}
+
+.collection-popout-toolbar .muted {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.collection-popout-empty {
+  grid-column: 1 / -1;
+  align-self: start;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .collection-popout-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

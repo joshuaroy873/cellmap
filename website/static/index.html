@@ -389,7 +389,16 @@
       <p class="collection-popout-help">
         Click to toggle. Shift-click selects a range. Ctrl/Cmd-click toggles individual names.
       </p>
-      <span id="collection-popout-count" class="muted"></span>
+      <div class="collection-popout-toolbar">
+        <input
+          id="collection-popout-search"
+          type="search"
+          placeholder="Search collections"
+          autocomplete="off"
+          aria-label="Search collections"
+        />
+        <span id="collection-popout-count" class="muted"></span>
+      </div>
       <div
         id="collection-popout-list"
         class="collection-popout-list"

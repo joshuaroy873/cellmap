@@ -94,6 +94,7 @@ const collectionPopoutControls = {
   dialog: $("collection-popout"),
   title: $("collection-popout-title"),
   count: $("collection-popout-count"),
+  search: $("collection-popout-search"),
   list: $("collection-popout-list"),
   closeButton: $("collection-popout-close"),
   clearButton: $("collection-popout-clear"),

@@ -197,11 +197,28 @@ function collectionPopoutColumns(items) {
   );
 }
 
-function updateCollectionPopoutCount() {
+function collectionPopoutQuery() {
+  return collectionPopoutControls.search.value.trim().toLowerCase();
+}
+
+// Items matching the search box, in list order; all items when the box is empty.
+function collectionPopoutVisibleItems(state) {
+  const query = collectionPopoutQuery();
+  if (!query) return state.items;
+  return state.items.filter((item) =>
+    collectionItemLabel(item).toLowerCase().includes(query)
+  );
+}
+
+function updateCollectionPopoutCount(visibleCount) {
   const state = collectionPopoutState;
   if (!state) return;
-  collectionPopoutControls.count.textContent =
-    `${state.selected.size} of ${state.items.length} selected`;
+  const filtered = collectionPopoutQuery() !== "";
+  collectionPopoutControls.count.textContent = filtered
+    ? `${state.selected.size} of ${state.items.length} selected · ${visibleCount} shown`
+    : `${state.selected.size} of ${state.items.length} selected`;
+  collectionPopoutControls.allButton.textContent = filtered ? "Select shown" : "Select all";
+  collectionPopoutControls.clearButton.textContent = filtered ? "Clear shown" : "Clear";
 }
 
 function renderCollectionPopout() {
@@ -212,7 +229,17 @@ function renderCollectionPopout() {
     state.scope === "compare" ? "Select collection subset" : "Select collections";
   collectionPopoutControls.list.replaceChildren();
 
-  for (const columnItems of collectionPopoutColumns(state.items)) {
+  const visible = collectionPopoutVisibleItems(state);
+  if (!visible.length) {
+    const empty = document.createElement("p");
+    empty.className = "collection-popout-empty";
+    empty.textContent = state.items.length
+      ? "No collections match the search."
+      : "No collections available.";
+    collectionPopoutControls.list.append(empty);
+  }
+
+  for (const columnItems of collectionPopoutColumns(visible)) {
     const column = document.createElement("div");
     column.className = "collection-popout-column";
 
@@ -235,7 +262,7 @@ function renderCollectionPopout() {
 
     collectionPopoutControls.list.append(column);
   }
-  updateCollectionPopoutCount();
+  updateCollectionPopoutCount(visible.length);
 }
 
 function openCollectionPopout(scope, curveId = "") {
@@ -247,10 +274,12 @@ function openCollectionPopout(scope, curveId = "") {
     selected: new Set(collectionPopoutSelected(scope, curveId)),
     anchorIndex: null,
   };
+  collectionPopoutControls.search.value = "";
   renderCollectionPopout();
   if (!collectionPopoutControls.dialog.open) {
     collectionPopoutControls.dialog.showModal();
   }
+  collectionPopoutControls.search.focus();
 }
 
 function closeCollectionPopout() {
@@ -267,12 +296,17 @@ function selectCollectionPopoutIndex(index, event) {
   if (!item) return;
 
   const additive = event.ctrlKey || event.metaKey;
-  if (event.shiftKey && state.anchorIndex !== null) {
-    const start = Math.min(state.anchorIndex, index);
-    const end = Math.max(state.anchorIndex, index);
+  const visible = collectionPopoutVisibleItems(state);
+  const anchorVisible = state.anchorIndex === null
+    ? -1
+    : visible.indexOf(state.items[state.anchorIndex]);
+  const clickedVisible = visible.indexOf(item);
+  if (event.shiftKey && anchorVisible >= 0 && clickedVisible >= 0) {
+    const start = Math.min(anchorVisible, clickedVisible);
+    const end = Math.max(anchorVisible, clickedVisible);
     if (!additive) state.selected.clear();
     for (let position = start; position <= end; position += 1) {
-      state.selected.add(collectionItemValue(state.items[position]));
+      state.selected.add(collectionItemValue(visible[position]));
     }
   } else {
     const value = collectionItemValue(item);
@@ -283,10 +317,13 @@ function selectCollectionPopoutIndex(index, event) {
   renderCollectionPopout();
 }
 
+// With a search active, Select all / Clear act only on the shown collections.
 function selectAllCollectionPopout() {
   const state = collectionPopoutState;
   if (!state) return;
-  state.selected = new Set(state.items.map(collectionItemValue));
+  for (const item of collectionPopoutVisibleItems(state)) {
+    state.selected.add(collectionItemValue(item));
+  }
   state.anchorIndex = null;
   renderCollectionPopout();
 }
@@ -294,7 +331,9 @@ function selectAllCollectionPopout() {
 function clearCollectionPopout() {
   const state = collectionPopoutState;
   if (!state) return;
-  state.selected.clear();
+  for (const item of collectionPopoutVisibleItems(state)) {
+    state.selected.delete(collectionItemValue(item));
+  }
   state.anchorIndex = null;
   renderCollectionPopout();
 }
@@ -338,6 +377,16 @@ function initializeCollectionPopout() {
     if (!item) return;
     event.preventDefault();
     selectCollectionPopoutIndex(Number(item.dataset.index), event);
+  });
+
+  collectionPopoutControls.search.addEventListener("input", renderCollectionPopout);
+  collectionPopoutControls.search.addEventListener("keydown", (event) => {
+    // Escape clears the search first; a second Escape closes the dialog.
+    if (event.key === "Escape" && collectionPopoutControls.search.value) {
+      event.preventDefault();
+      collectionPopoutControls.search.value = "";
+      renderCollectionPopout();
+    }
   });
 
   collectionPopoutControls.allButton.addEventListener("click", selectAllCollectionPopout);
