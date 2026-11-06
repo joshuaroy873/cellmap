@@ -15,7 +15,8 @@ import secrets
 import shlex
 import sqlite3
 import sys
-from contextlib import closing
+import threading
+from contextlib import closing, contextmanager
 from datetime import date, datetime
 from functools import lru_cache
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -34,6 +35,8 @@ from cellmap_schema import (  # noqa: E402
     DETAIL_FIELDS,
     METRICS,
     NULL_FILTER_VALUE,
+    connect_read_only,
+    parse_timestamp,
 )
 from compare_api import compare_cdf_payload  # noqa: E402
 from cellmap_geo import polygon_search, geo_options
@@ -47,6 +50,29 @@ MAX_CDF_POINTS = 400
 SHARED_VIEW_ID = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 MAX_SHARED_VIEW_COLLECTIONS = 1_000
 MAX_SHARED_VIEW_VALUE_LENGTH = 512
+# At most this many data requests run at once; the rest wait briefly, then get
+# a 503 instead of piling threads onto the shared DuckDB engine.
+MAX_CONCURRENT_QUERIES = 8
+QUERY_WAIT_SECONDS = 20
+QUERY_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_QUERIES)
+
+
+class ServerBusy(Exception):
+    pass
+
+
+class UnknownEndpoint(LookupError):
+    pass
+
+
+@contextmanager
+def query_slot():
+    if not QUERY_SLOTS.acquire(timeout=QUERY_WAIT_SECONDS):
+        raise ServerBusy("The server is busy; please try again in a moment")
+    try:
+        yield
+    finally:
+        QUERY_SLOTS.release()
 
 
 def carto_basemap_key() -> str:
@@ -96,10 +122,7 @@ def shared_time(value: object, label: str) -> str | None:
     normalized = shared_string(value, label)
     if normalized is None:
         return None
-    try:
-        datetime.fromisoformat(normalized)
-    except ValueError as error:
-        raise ValueError(f"Shared view {label} is not a valid date and time") from error
+    parse_timestamp(normalized, f"Shared view {label}")
     return normalized
 
 
@@ -141,7 +164,7 @@ def normalize_shared_view_state(request: dict[str, object]) -> dict[str, object]
 
     start = shared_time(state.get("start"), "start time")
     end = shared_time(state.get("end"), "end time")
-    if start and end and datetime.fromisoformat(start) > datetime.fromisoformat(end):
+    if start and end and parse_timestamp(start, "start") > parse_timestamp(end, "end"):
         raise ValueError("Shared view start time must be before end time")
 
     return {
@@ -286,7 +309,7 @@ def validate_choice(value: str, choices: dict[str, object], label: str) -> str:
 def open_catalog() -> duckdb.DuckDBPyConnection:
     if not DB_PATH.exists():
         raise FileNotFoundError("Run scripts/import_csvs.py before starting the website")
-    return duckdb.connect(str(DB_PATH), read_only=True)
+    return connect_read_only(DB_PATH)
 
 
 def catalog_payload() -> dict[str, object]:
@@ -548,6 +571,13 @@ def options_payload(query: dict[str, list[str]]) -> dict[str, object]:
         if count
     ]
     return {
+        "selected": {
+            "technology": technology,
+            "operator": operator,
+            "band": band,
+            "pci": pci,
+            "ssb": ssb,
+        },
         "technologies": technologies or [],
         "operators": operators or [],
         "bands": [
@@ -655,13 +685,15 @@ def filtered_query(
     if band is not None:
         append_band_filter(clauses, params, band)
 
-    start = query_value(query, "start")
-    end = query_value(query, "end")
+    start = parse_timestamp(query_value(query, "start"), "start time")
+    end = parse_timestamp(query_value(query, "end"), "end time")
+    if start and end and start > end:
+        raise ValueError("Start time must not be after end time")
     if start:
-        clauses.append("measured_at >= try_cast(? AS TIMESTAMP)")
+        clauses.append("measured_at >= ?")
         params.append(start)
     if end:
-        clauses.append("measured_at <= try_cast(? AS TIMESTAMP)")
+        clauses.append("measured_at <= ?")
         params.append(end)
 
     sql = f"""
@@ -708,13 +740,15 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
                 median(metric_value),
                 quantile_cont(metric_value, 0.05),
                 quantile_cont(metric_value, 0.95),
+                quantile_cont(metric_value, 0.01),
+                quantile_cont(metric_value, 0.99),
                 min(measured_at),
                 max(measured_at)
             FROM filtered
-            WHERE metric_value IS NOT NULL
+            WHERE isfinite(metric_value)
         """, params).fetchone()
 
-        count, minimum, maximum, median, p5, p95, start, end = summary
+        count, minimum, maximum, median, p5, p95, p1, p99, start, end = summary
         if not count:
             return {
                 "metric": metric,
@@ -735,7 +769,7 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
                     metric_value,
                     {", ".join(details)}
                 FROM ({filtered})
-                WHERE metric_value IS NOT NULL
+                WHERE isfinite(metric_value)
                   AND latitude IS NOT NULL
                   AND longitude IS NOT NULL
             ),
@@ -784,7 +818,7 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
                     max(metric_value) AS maximum,
                     count(metric_value) AS samples
                 FROM filtered
-                WHERE metric_value IS NOT NULL
+                WHERE isfinite(metric_value)
                 GROUP BY bucket
                 ORDER BY bucket
             """, [*params, bucket, bucket]).fetchall()
@@ -800,6 +834,8 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
             "median": median,
             "p5": p5,
             "p95": p95,
+            "p1": p1,
+            "p99": p99,
             "start": start,
             "end": end,
         },
@@ -843,7 +879,7 @@ def cdf_payload(query: dict[str, list[str]]) -> dict[str, object]:
                 count(metric_value),
                 quantile_cont(metric_value, [{probability_sql}])
             FROM filtered
-            WHERE metric_value IS NOT NULL
+            WHERE isfinite(metric_value)
         """, params).fetchone()
 
     return {
@@ -856,6 +892,32 @@ def cdf_payload(query: dict[str, list[str]]) -> dict[str, object]:
             for value, probability in zip(values or [], probabilities)
         ],
     }
+
+
+def view_payload(query: dict[str, list[str]]) -> dict[str, object]:
+    """Filter choices and measurements in one round trip for the Map tab.
+
+    Filter values are validated against the available choices first, exactly
+    as the browser would after a separate /api/options call, and the
+    measurements are then queried with those validated values.
+    """
+    options = options_payload(query)
+    metrics = [item["value"] for item in options["metrics"]]
+    requested = query_value(query, "metric")
+    metric = requested if requested in metrics else (metrics[0] if metrics else None)
+    selected = dict(options["selected"], metric=metric)
+    measurements = None
+    if metric:
+        scoped = {
+            name: query[name]
+            for name in ("database", "collection", "measurement", "start", "end")
+            if name in query
+        }
+        for name, value in selected.items():
+            if value is not None:
+                scoped[name] = [str(value)]
+        measurements = measurement_payload(scoped)
+    return {"options": options, "selected": selected, "measurements": measurements}
 
 
 @lru_cache(maxsize=64)
@@ -893,6 +955,11 @@ def accepts_gzip(value: str) -> bool:
 
 
 class Handler(SimpleHTTPRequestHandler):
+    # Keep-alive: the browser and the Cloudflare tunnel reuse one TCP
+    # connection per client instead of opening a new one for every fetch.
+    protocol_version = "HTTP/1.1"
+    timeout = 30  # Idle kept-alive connections release their thread.
+
     def __init__(self, *args: object, **kwargs: object) -> None:
         super().__init__(*args, directory=str(STATIC), **kwargs)
 
@@ -900,71 +967,81 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(self.path)
         if not parsed.path.startswith("/api/"):
             return super().do_GET()
+        self.handle_api(lambda: self.get_payload(parsed.path, parse_qs(parsed.query)))
 
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        self.handle_api(lambda: self.post_payload(parsed.path))
+
+    def handle_api(self, build: object) -> None:
         try:
-            query = parse_qs(parsed.query)
-            if parsed.path == "/api/health":
-                payload = {"status": "ok"}
-            elif parsed.path == "/api/config":
-                payload = {"cartoBasemapKey": carto_basemap_key()}
-            elif parsed.path == "/api/catalog":
-                payload = catalog_payload()
-            elif parsed.path == "/api/options":
-                payload = options_payload(query)
-            elif parsed.path == "/api/geo/options":
-                payload = geo_options(ROOT, DB_PATH, DB_PATH.parent)
-            elif parsed.path == "/api/measurements":
-                payload = measurement_payload(query)
-            elif parsed.path == "/api/cdf":
-                payload = cdf_payload(query)
-            elif parsed.path.startswith("/api/shared-views/"):
-                identifier = parsed.path.removeprefix("/api/shared-views/")
-                if not identifier or "/" in identifier:
-                    self.send_json({"error": "Unknown API endpoint"}, status=404)
-                    return
-                payload = shared_view_payload(identifier)
-            else:
-                self.send_json({"error": "Unknown API endpoint"}, status=404)
-                return
-            self.send_json(payload)
+            self.send_json(build())
         except ValueError as error:
             self.send_json({"error": str(error)}, status=400)
         except FileNotFoundError as error:
             self.send_json({"error": str(error)}, status=503)
+        except ServerBusy as error:
+            self.send_json({"error": str(error)}, status=503)
+        except (KeyError, IndexError) as error:
+            # Programming errors, not "not found": never report them as 404.
+            self.log_error("%r", error)
+            self.send_json({"error": "The request failed"}, status=500)
         except LookupError as error:
             self.send_json({"error": str(error)}, status=404)
         except Exception as error:
             self.log_error("%s", error)
-            self.send_json({"error": "The measurement query failed"}, status=500)
-
-    def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        try:
-            if parsed.path == "/api/compare/cdf":
-                payload = compare_cdf_payload(
-                    self.read_json_body(), ROOT, DB_PATH, MEASUREMENTS
-                )
-            elif parsed.path == "/api/geo/search":
-                payload = polygon_search(self.read_json_body(), ROOT, DB_PATH, DB_PATH.parent)
-            elif parsed.path == "/api/shared-views":
-                payload = create_shared_view_payload(self.read_json_body())
-            else:
-                self.send_json({"error": "Unknown API endpoint"}, status=404)
-                return
-            self.send_json(payload)
-        except ValueError as error:
-            self.send_json({"error": str(error)}, status=400)
-        except FileNotFoundError as error:
-            self.send_json({"error": str(error)}, status=503)
-        except Exception as error:
-            self.log_error("%s", error)
             self.send_json({"error": "The request failed"}, status=500)
 
+    def get_payload(self, path: str, query: dict[str, list[str]]) -> object:
+        if path == "/api/health":
+            return {"status": "ok"}
+        if path == "/api/config":
+            return {"cartoBasemapKey": carto_basemap_key()}
+        with query_slot():
+            if path == "/api/catalog":
+                return catalog_payload()
+            if path == "/api/options":
+                return options_payload(query)
+            if path == "/api/view":
+                return view_payload(query)
+            if path == "/api/geo/options":
+                return geo_options(ROOT, DB_PATH, DB_PATH.parent)
+            if path == "/api/measurements":
+                return measurement_payload(query)
+            if path == "/api/cdf":
+                return cdf_payload(query)
+            if path.startswith("/api/shared-views/"):
+                identifier = path.removeprefix("/api/shared-views/")
+                if identifier and "/" not in identifier:
+                    return shared_view_payload(identifier)
+        raise UnknownEndpoint("Unknown API endpoint")
+
+    def post_payload(self, path: str) -> object:
+        if path == "/api/compare/cdf":
+            body = self.read_json_body()
+            with query_slot():
+                return compare_cdf_payload(body, ROOT, DB_PATH, MEASUREMENTS)
+        if path == "/api/geo/search":
+            body = self.read_json_body()
+            with query_slot():
+                return polygon_search(body, ROOT, DB_PATH, DB_PATH.parent)
+        if path == "/api/shared-views":
+            body = self.read_json_body()
+            with query_slot():
+                return create_shared_view_payload(body)
+        raise UnknownEndpoint("Unknown API endpoint")
+
     def read_json_body(self) -> dict[str, object]:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self.close_connection = True
+            raise ValueError("Invalid Content-Length") from None
         if length <= 0:
             raise ValueError("JSON request body is required")
         if length > 1_000_000:
+            # The unread body would corrupt the next request on this connection.
+            self.close_connection = True
             raise ValueError("JSON request body is too large")
         body = self.rfile.read(length)
         try:
@@ -976,9 +1053,16 @@ class Handler(SimpleHTTPRequestHandler):
         return payload
 
     def send_json(self, payload: object, status: int = 200) -> None:
-        body = json.dumps(
-            payload, default=json_default, separators=(",", ":")
-        ).encode()
+        try:
+            # NaN/Infinity are not JSON; the browser would reject the whole
+            # response. Fail here with a clear error instead.
+            body = json.dumps(
+                payload, default=json_default, separators=(",", ":"), allow_nan=False
+            ).encode()
+        except ValueError as error:
+            self.log_error("non-finite value in response: %s", error)
+            status = 500
+            body = json.dumps({"error": "The result contained a non-numeric value"}).encode()
         use_gzip = accepts_gzip(self.headers.get("Accept-Encoding", "")) and len(body) > 1024
         if use_gzip:
             body = gzip.compress(body, compresslevel=5)

@@ -6,12 +6,19 @@ that batch-CDF logic out of the main static-file server.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
-from cellmap_schema import CATEGORY_TYPES, METRICS, NULL_FILTER_VALUE
+from cellmap_schema import (
+    CATEGORY_TYPES,
+    METRICS,
+    NULL_FILTER_VALUE,
+    connect_read_only,
+    parse_timestamp,
+)
 
 
 MAX_COMPARE_CURVES = 20
@@ -121,8 +128,8 @@ def curve_where(
     database: str,
     collections: list[str],
     curve: dict[str, Any],
-    start: str | None,
-    end: str | None,
+    start: datetime | None,
+    end: datetime | None,
 ) -> tuple[str, list[object]]:
     placeholders = ", ".join("?" for _ in collections)
     clauses = [
@@ -150,10 +157,10 @@ def curve_where(
     if band:
         append_band_filter(clauses, params, band)
     if start:
-        clauses.append("measured_at >= try_cast(? AS TIMESTAMP)")
+        clauses.append("measured_at >= ?")
         params.append(start)
     if end:
-        clauses.append("measured_at <= try_cast(? AS TIMESTAMP)")
+        clauses.append("measured_at <= ?")
         params.append(end)
 
     return " AND ".join(clauses), params
@@ -233,8 +240,8 @@ def query_curve(
     root: Path,
     measurements_dir: Path,
     database: str,
-    start: str | None,
-    end: str | None,
+    start: datetime | None,
+    end: datetime | None,
     curve: dict[str, Any],
 ) -> dict[str, object]:
     category = clean_string(curve.get("measurement")) or "radio"
@@ -276,7 +283,7 @@ def query_curve(
             max(metric_value),
             quantile_cont(metric_value, [{probability_sql}])
         FROM filtered
-        WHERE metric_value IS NOT NULL
+        WHERE isfinite(metric_value)
     """, params).fetchone()
 
     if not count:
@@ -349,10 +356,12 @@ def compare_cdf_payload(
     if not all(isinstance(curve, dict) for curve in curves):
         raise ValueError("Compare curves must be objects")
 
-    start = clean_string(request.get("start"))
-    end = clean_string(request.get("end"))
+    start = parse_timestamp(clean_string(request.get("start")), "start time")
+    end = parse_timestamp(clean_string(request.get("end")), "end time")
+    if start and end and start > end:
+        raise ValueError("Start time must not be after end time")
 
-    with duckdb.connect(str(db_path), read_only=True) as con:
+    with connect_read_only(db_path) as con:
         queried = [
             query_curve(con, root, measurements_dir, database, start, end, curve)
             for curve in curves
@@ -360,8 +369,8 @@ def compare_cdf_payload(
 
     return {
         "database": database,
-        "start": start,
-        "end": end,
+        "start": clean_string(request.get("start")),
+        "end": clean_string(request.get("end")),
         "curve_count": len(queried),
         "charts": group_curves(queried),
     }

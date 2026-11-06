@@ -381,44 +381,58 @@ function measurementParams() {
   };
 }
 
-async function loadOptions({ resetFilters = false, selection = null } = {}) {
+// Filter choices and measurements arrive in one /api/view round trip. The
+// server validates the requested filter values against the available choices
+// and returns the values it actually applied.
+async function loadView({ resetFilters = false, selection = null } = {}) {
+  if (activeTab !== "map") return false;
   if (!controls.database.value || !selectedCollections().length) return false;
   if (resetFilters) {
-    controls.technology.value = "all";
-    controls.operator.value = "all";
-    controls.band.value = "all";
-    controls.pci.value = "all";
-    controls.ssb.value = "all";
-  }
-  const params = optionParams();
-  if (selection) {
     for (const name of ["technology", "operator", "band", "pci", "ssb"]) {
+      controls[name].value = "all";
+    }
+  }
+  const params = measurementParams();
+  if (selection) {
+    for (const name of ["technology", "operator", "band", "pci", "ssb", "metric"]) {
       params[name] = selection[name] || "all";
     }
   }
-  const key = JSON.stringify(params);
-  if (!selection && key === lastOptionsKey) return true;
+  if (!selection && lastMapPayload
+      && JSON.stringify(optionParams()) === lastOptionsKey
+      && JSON.stringify(params) === lastMapKey) {
+    showCachedMeasurements();
+    return true;
+  }
   const request = ++optionRequestNumber;
+  requestNumber += 1;
   optionController?.abort();
+  measurementController?.abort();
   optionController = new AbortController();
   optionsPending = true;
   updateCdfButton();
+  setStatus("Loading measurements");
+  setMapMessage("Loading measurements");
   try {
-    const payload = await getJSON("/api/options", params, optionController.signal);
-    if (request !== optionRequestNumber) return false;
-    options = payload;
-
-    setSelect(controls.technology, options.technologies, params.technology, "All technologies");
-    setSelect(controls.operator, options.operators, params.operator, "All operators");
-    setTimeSeriesAvailable(controls.operator.value !== "all");
-    setSelect(controls.band, options.bands, params.band, "All bands");
-    setSelect(controls.pci, options.pcis, params.pci, "All PCIs");
-    setSelect(controls.ssb, options.ssb_indexes, params.ssb, "All SSB indexes");
-    setSelect(
-      controls.metric, options.metrics,
-      selection?.metric ?? (resetFilters ? null : controls.metric.value)
-    );
+    const payload = await getJSON("/api/view", params, optionController.signal);
+    if (request !== optionRequestNumber || activeTab !== "map") return false;
+    options = payload.options;
+    const selected = payload.selected;
+    setSelect(controls.technology, options.technologies, selected.technology ?? "all", "All technologies");
+    setSelect(controls.operator, options.operators, selected.operator ?? "all", "All operators");
+    setSelect(controls.band, options.bands, selected.band ?? "all", "All bands");
+    setSelect(controls.pci, options.pcis, selected.pci ?? "all", "All PCIs");
+    setSelect(controls.ssb, options.ssb_indexes, selected.ssb ?? "all", "All SSB indexes");
+    setSelect(controls.metric, options.metrics, selected.metric ?? "");
     lastOptionsKey = JSON.stringify(optionParams());
+    optionsPending = false;
+    if (!payload.measurements) {
+      showSelectionPrompt("No metrics are available for these filters.");
+      return true;
+    }
+    lastMapKey = JSON.stringify(measurementParams());
+    lastMapPayload = payload.measurements;
+    showMeasurementPayload(payload.measurements);
     return true;
   } finally {
     if (request === optionRequestNumber) {

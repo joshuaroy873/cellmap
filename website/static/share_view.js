@@ -154,10 +154,9 @@ async function restoreSharedView(state) {
   if (state.end) controls.end.value = inputTime(state.end);
   fittedSelection = "";
 
-  const applied = await loadOptions({ selection: state });
+  const applied = await loadView({ selection: state });
   if (!applied) return;
   updateCdfButton();
-  await loadMeasurements();
   updateShareButton();
 
   if (missingCollections.length) {

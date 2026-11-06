@@ -26,6 +26,24 @@ function showSelectionPrompt(message) {
   setMapMessage(message);
 }
 
+function showMeasurementPayload(payload) {
+  const showTimeSeries = controls.operator.value !== "all";
+  setTimeSeriesAvailable(showTimeSeries);
+  renderMap(payload);
+  renderSummary(payload);
+  if (showTimeSeries) drawChart(payload);
+  clearDetails();
+  setStatus("");
+}
+
+function showCachedMeasurements() {
+  const showTimeSeries = controls.operator.value !== "all";
+  setTimeSeriesAvailable(showTimeSeries);
+  if (showTimeSeries) drawChart(lastMapPayload);
+  setMapMessage(lastMapPayload.points.length ? "" : "No mapped measurements match these filters.");
+  setStatus("");
+}
+
 async function loadMeasurements() {
   if (activeTab !== "map") return;
   if (optionsPending) return;
@@ -37,14 +55,11 @@ async function loadMeasurements() {
   const key = JSON.stringify(params);
   const currentRequest = ++requestNumber;
   measurementController?.abort();
-  const showTimeSeries = controls.operator.value !== "all";
-  setTimeSeriesAvailable(showTimeSeries);
   if (lastMapPayload && key === lastMapKey) {
-    if (showTimeSeries) drawChart(lastMapPayload);
-    setMapMessage(lastMapPayload.points.length ? "" : "No mapped measurements match these filters.");
-    setStatus("");
+    showCachedMeasurements();
     return;
   }
+  setTimeSeriesAvailable(controls.operator.value !== "all");
   measurementController = new AbortController();
   setStatus("Querying measurements");
   setMapMessage("Loading measurements");
@@ -53,11 +68,7 @@ async function loadMeasurements() {
     if (currentRequest !== requestNumber || activeTab !== "map") return;
     lastMapPayload = payload;
     lastMapKey = key;
-    renderMap(payload);
-    renderSummary(payload);
-    if (showTimeSeries) drawChart(payload);
-    clearDetails();
-    setStatus("");
+    showMeasurementPayload(payload);
   } catch (error) {
     if (currentRequest !== requestNumber || error.name === "AbortError") return;
     clearMapResult();
@@ -71,9 +82,7 @@ async function refreshOptionsAndData(resetFilters = false) {
   const refresh = mapRefreshNumber;
   try {
     setStatus("Loading filter values");
-    const applied = await loadOptions({ resetFilters });
-    if (!applied || refresh !== mapRefreshNumber) return;
-    await loadMeasurements();
+    await loadView({ resetFilters });
   } catch (error) {
     if (refresh !== mapRefreshNumber || error.name === "AbortError") return;
     clearMapResult();

@@ -94,9 +94,24 @@ function cdfSummaryText(payload) {
   return [count, ...labels].join(" | ");
 }
 
-function renderLegendAxis(minimum, maximum) {
+// The palette spans the 1st to 99th percentile so one outlier reading cannot
+// flatten every other point into the same colour. Values beyond the ends keep
+// the end colour; the legend marks a clipped end with ≤ or ≥.
+function colorScale(summary) {
+  const minimum = summary.p1 ?? summary.minimum;
+  const maximum = summary.p99 ?? summary.maximum;
+  return {
+    minimum,
+    maximum,
+    clippedLow: minimum != null && summary.minimum != null && minimum > summary.minimum,
+    clippedHigh: maximum != null && summary.maximum != null && maximum < summary.maximum,
+  };
+}
+
+function renderLegendAxis(scale) {
   const axis = $("legend-axis");
   axis.replaceChildren();
+  const { minimum, maximum } = scale;
   if (minimum === null || minimum === undefined ||
       maximum === null || maximum === undefined) {
     return;
@@ -105,7 +120,9 @@ function renderLegendAxis(minimum, maximum) {
   for (let index = 0; index < 5; index += 1) {
     const tick = document.createElement("span");
     tick.style.left = `${index * 25}%`;
-    tick.textContent = legendAxisNumber(minimum + (span * index) / 4);
+    const text = legendAxisNumber(minimum + (span * index) / 4);
+    tick.textContent = index === 0 && scale.clippedLow ? `≤${text}`
+      : index === 4 && scale.clippedHigh ? `≥${text}` : text;
     axis.append(tick);
   }
 }
@@ -221,7 +238,7 @@ function drawChart(payload) {
     context.textAlign = fraction === 0 ? "left" : fraction === 1 ? "right" : "center";
     context.fillText(
       time.toLocaleString([], {
-        timeZone: "UTC", hour: "2-digit", minute: "2-digit",
+        timeZone: "UTC", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
         ...(multiDay ? { month: "short", day: "numeric" } : {}),
       }),
       margin.left + fraction * plotWidth,

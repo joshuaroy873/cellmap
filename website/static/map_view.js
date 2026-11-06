@@ -55,7 +55,8 @@ function renderMap(payload) {
   markerLayer.clearLayers();
   $("map-legend").hidden = !payload.points.length;
   $("legend-unit").textContent = payload.unit;
-  renderLegendAxis(payload.summary.minimum, payload.summary.maximum);
+  const scale = colorScale(payload.summary);
+  renderLegendAxis(scale);
 
   if (!payload.points.length) {
     setMapMessage("No mapped measurements match these filters.");
@@ -65,11 +66,7 @@ function renderMap(payload) {
   setMapMessage("");
   const bounds = [];
   for (const point of payload.points) {
-    const color = colorFor(
-      point.metric_value,
-      payload.summary.minimum,
-      payload.summary.maximum
-    );
+    const color = colorFor(point.metric_value, scale.minimum, scale.maximum);
     const marker = L.circleMarker([point.latitude, point.longitude], {
       renderer: map.options.renderer,
       radius: 4,

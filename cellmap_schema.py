@@ -1,5 +1,8 @@
 """Shared schema constants for CSV import and website queries."""
 
+import re
+from datetime import datetime
+
 SCHEMA_VERSION = 3
 NULL_FILTER_VALUE = "__null__"
 
@@ -273,6 +276,49 @@ ROW_FILTERS = {
         (["test_status"], "Completed"),
     ],
 }
+
+# DuckDB keeps ONE engine per database file per process and shares it between
+# every open connection. A SET on any connection therefore changes all of them,
+# and connecting with a different config than an open connection is an error.
+# Every website connection must go through connect_read_only so the engine is
+# always bounded the same way: these caps hold for all concurrent requests.
+QUERY_CONFIG = {"threads": "16", "memory_limit": "8GB"}
+
+
+def connect_read_only(path):
+    import duckdb
+
+    return duckdb.connect(str(path), read_only=True, config=QUERY_CONFIG)
+
+
+TIMESTAMP_PATTERN = re.compile(
+    r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?"
+)
+
+
+def parse_timestamp(value, label):
+    """Parse browser datetime-local text (any fractional-second length) or fail loudly.
+
+    Python 3.10's fromisoformat rejects one- or two-digit fractions such as
+    10:52:19.4, which the browser produces after trimming trailing zeros.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{label} must be text")
+    text = value.strip()
+    if not text:
+        return None
+    match = TIMESTAMP_PATTERN.fullmatch(text)
+    if not match:
+        raise ValueError(f"{label} must look like YYYY-MM-DD HH:MM[:SS[.ffffff]]")
+    day, minute, second, fraction = match.groups()
+    normalized = f"{day}T{minute}:{second or '00'}.{(fraction or '').ljust(6, '0')}"
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError as error:
+        raise ValueError(f"{label} is not a valid date and time") from error
+
 
 FILE_TYPES = {
     "lte_radio": "lte_radio",
