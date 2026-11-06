@@ -240,12 +240,13 @@ label {
 
 .collection-actions .collection-select-all {
   position: static;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   border-bottom: 0;
+  white-space: nowrap;
 }
 
 .collection-search {
-  flex: 1 1 5rem;
+  flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
   align-self: center;
