@@ -130,6 +130,20 @@ function collectionSearchQuery(options) {
 }
 
 function initializeCollectionSearch() {
+  // "toggle" does not bubble, so listen in the capture phase. Closing a
+  // list clears its search; opening one focuses the search box.
+  document.addEventListener("toggle", (event) => {
+    const picker = event.target;
+    const search = picker.querySelector?.("[data-collection-search]");
+    if (!search) return;
+    if (picker.open) {
+      search.focus();
+    } else if (search.value) {
+      search.value = "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }, true);
+
   document.addEventListener("input", (event) => {
     const search = event.target.closest?.("[data-collection-search]");
     if (search) applyCollectionSearch(search.closest(".collection-options"));
