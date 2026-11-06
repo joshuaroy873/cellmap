@@ -1,96 +1,54 @@
 # Data
 
-Reviewed against committed source `b79c7e6` on 2026-09-28, after the owner's push.
-No data was imported, deleted, or
-rewritten during this documentation update.
-
-This folder is for local measurement data and processed outputs. Keep raw CSVs,
-DuckDB files, and Parquet files here; do not commit them to GitHub.
+Local measurement data and processed outputs. Only this README is tracked.
 
 ```text
-data/_temp/                          optional CSV drop folder
-data/_csvs/<database>/<date>/*.csv   optional dated QualiPoc CSV archive
-data/_processed/cellular.duckdb      DuckDB catalog
-data/_processed/measurements/        partitioned Parquet output
-data/_processed/import-report.json  latest activated import/rebuild report
-data/shared_views.sqlite3            shared links, outside dataset swaps
-data/.import.lock                   lock for import/delete commands
-data/_rebuild-<id>/                  replacement being built (or failed build)
-data/_backup-<id>/                   previous dataset retained after a swap
+data/_csvs/<database>/<YYYYMMDD[-HHMM]>/*.csv   dated QualiPoc CSV archive (optional)
+data/_temp/                                     scratch drop folder
+data/_processed/cellular.duckdb                 catalog: partitions, bounds, file hashes
+data/_processed/measurements/<type>/database=…/collection=…/data.parquet
+data/_processed/import-report.json              report of the activated import
+data/shared_views.sqlite3                       share links; survives dataset swaps
+data/.import.lock                               serialises import/delete commands
+data/_rebuild-<id>/                             replacement being built, or a failed build
+data/_backup-<id>/                              previous dataset kept after a swap
 ```
 
-From the repo root, use `.venv/bin/python scripts/import_csvs.py /path/to/csv-folder` to scan and
-import CSVs. Inputs may also be outside this repository; they are not moved or
-deleted. Add `--rebuild` only when replacing the entire dataset, or `--check-only`
-to validate without activating. See the [import guide](../scripts/README.md).
-Before activation, address the importer/service mismatch documented in
-[service.md](../service.md#importer-integration-warning). Its default old user
-units do not match public `cellmap.service` plus user `cellmap-local.service`.
-Use `--check-only` for build/validation; ask the owner before any service restart.
-
-Supported export date folder formats:
-
-```text
-YYYYMMDD
-YYYYMMDD-HHMM
-```
-
-## Remove a Database
-
-Stop the website before confirmed deletion. Replace `DATABASE` below with the
-name, quoted if it contains spaces.
-
-Preview removal of one complete local database before deleting it:
+## Importing
 
 ```bash
-.venv/bin/python scripts/import_csvs.py --delete-database DATABASE
+.venv/bin/python scripts/import_csvs.py /path/to/csv-folder            # add or refresh snapshots
+.venv/bin/python scripts/import_csvs.py /path/to/full-dump --rebuild    # replace everything
+.venv/bin/python scripts/import_csvs.py /path/to/csv-folder --check-only
 ```
 
-To confirm the permanent deletion:
+Inputs may live anywhere and are never moved or deleted. A matching
+database/collection/type input replaces that partition as a whole; an empty
+input never deletes data. The export time comes from the dated parent folder,
+else the file's modification time, else `--date`. Details, safety and
+rollback: [scripts/README.md](../scripts/README.md). Service integration
+caveat: [service.md](../service.md#importer-integration-warning).
+
+Failed and check-only builds and old backups are kept for inspection, not
+cleaned up automatically. Unchanged Parquet files are hard-linked between
+datasets.
+
+## Removing a database
 
 ```bash
-.venv/bin/python scripts/import_csvs.py --delete-database DATABASE --yes
+.venv/bin/python scripts/import_csvs.py --delete-database NAME         # preview
+.venv/bin/python scripts/import_csvs.py --delete-database NAME --yes   # delete
 ```
 
-This removes that database's raw CSV archive, generated Parquet partitions, and
-matching DuckDB metadata. It preserves `data/_temp/`, `cellular.duckdb`, and all
-other databases. The preview lists every catalog collection first. See the
-[scripts guide](../scripts/README.md#delete-a-database) for the full scope and
-safeguards.
+Stop the website first. This removes the database's CSV archive, Parquet
+partitions and catalog records, and nothing else. It is not a swap: there is
+no rollback.
 
-Only this README is intended to be tracked in Git.
+## Spatial metadata
 
-## Import safety and rollout
-
-Without a dated parent folder, export time comes from file modification time;
-`--date` overrides it. Matching collection/type inputs replace snapshots, not
-individual rows. Empty normal inputs do not clear existing measurements.
-
-Stages contain `import-report.json` after successful validation. Check-only and
-failed stages, plus old backups, are retained for inspection, not automatically
-cleaned up. Review exact paths before removal. Unchanged Parquet files are
-hard-linked during normal imports.
-
-The stable SQLite location is implemented in source. Older processes may still
-use `data/_processed/shared_views.sqlite3`; startup/activation migrates links
-without deleting the original. No live rebuild or migration was performed for
-the importer-safety work.
-
-Confirmed database deletion does not use swap/rollback safety. External input
-CSVs, shared links, and retained backups are not deleted.
-
-## Geographic queries
-
-The catalog stores `collection_bounds`: one bounding box per database/collection
-across all technologies/types. Imports refresh it; the sole import script also
-offers `--refresh-bounds` without rewriting measurements. Missing bounds fall
-back to scanning rather than excluding collections.
-
-Geo-poly computes Web Mercator squares from filtered measurements on demand.
-No point/grid results or per-grid-size datasets are persisted. Only small filter
-metadata and primary request settings are reused. Operator/band choices in
-exploration are deduplicated from checked primary-result collections, within
-the original area and finite metric values. See the [website guide](../website/README.md).
-The default grid side is 100 km; changing that setting does not rewrite data.
-Committing code does not commit measurement files, root `.env`, or the ignored
-local `AI_CONTEXT.md`; their existing Git exclusions are unchanged.
+`collection_bounds` holds one bounding box and located-row count per
+database/collection across all types. Imports maintain it;
+`--refresh-bounds` recomputes it from existing Parquet without reimporting.
+Geo-poly uses it to skip collections that cannot intersect a polygon; a
+missing box means scan, never exclude. Grid results are computed per query
+and never stored.

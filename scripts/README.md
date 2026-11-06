@@ -1,378 +1,151 @@
-# CSV Import
+# CSV import
 
-Reviewed against committed source `b79c7e6` on 2026-09-28, after the owner's push.
-No live reimport or activation was
-performed for this documentation update.
+`scripts/import_csvs.py` is the one data-management command. It scans a folder,
+recognises supported QualiPoc CSV names, normalises and filters rows, writes
+Parquet partitions, and activates the result with validation and rollback.
 
-There is one data-management command: `scripts/import_csvs.py`.
-It scans a folder recursively, recognizes supported CSV names, validates and
-filters the rows, and imports them into the website's dataset.
+## Commands
 
-The consolidated safe-import workflow is implemented locally but has not yet
-been used to reimport or swap the live dataset. Separate staging, initialization,
-summary, and rebuild scripts are no longer needed.
+```bash
+.venv/bin/python scripts/import_csvs.py /path/to/csv-folder                 # add or refresh snapshots
+.venv/bin/python scripts/import_csvs.py /path/to/full-dump --rebuild         # replace the whole dataset
+.venv/bin/python scripts/import_csvs.py /path/to/csv-folder --check-only     # build and validate only
+.venv/bin/python scripts/import_csvs.py --refresh-bounds                     # recompute spatial metadata
+.venv/bin/python scripts/import_csvs.py --delete-database NAME [--yes]       # preview, then delete
+```
 
-## Everyday commands
+Paths may be files or folders anywhere; subfolders and `.CSV` are fine; sources
+are never moved or deleted. With no path the script scans `data/_csvs`. The
+export time is the `YYYYMMDD` or `YYYYMMDD-HHMM` parent folder, else the file's
+modification time; `--date` overrides both. Older exports never overwrite newer
+partitions, and two different snapshots with the same key and time are
+rejected as ambiguous.
 
-Deployment warning: the importer still defaults to obsolete transient user
-services and cannot manage the public system unit `cellmap.service`. The active
-deployment configuration uses that unit plus user unit `cellmap-local.service`.
-Adapt service integration before activating imports; passing a different unit
-name does not fix the system/user mismatch. Use `--check-only` to build/validate
-without activation. Ask the owner before any service stop/restart. See
+Service caveat: activation only manages systemd **user** units and defaults to
+obsolete names, so it cannot restart the public system unit. Use
+`--check-only`, then swap and restart by hand, until that is adapted. See
 [service.md](../service.md#importer-integration-warning).
 
-Import a folder, preserving unrelated databases and collections:
-
-```bash
-.venv/bin/python scripts/import_csvs.py /path/to/csv-folder
-```
-
-Replace the entire dataset using only the supplied inputs:
-
-```bash
-.venv/bin/python scripts/import_csvs.py /path/to/complete-csv-dump --rebuild
-```
-
-Check either operation without changing live data or stopping the website:
-
-```bash
-.venv/bin/python scripts/import_csvs.py /path/to/csv-folder --check-only
-.venv/bin/python scripts/import_csvs.py /path/to/complete-csv-dump --rebuild --check-only
-```
-
-Paths can be files or folders, inside or outside this repository. Subfolders and
-uppercase `.CSV` extensions are supported. Original CSVs are never moved,
-renamed, or deleted by an import. With no path, the script scans `data/_csvs`.
-
-The export date comes from a `YYYYMMDD` or `YYYYMMDD-HHMM` parent folder,
-otherwise from the file's modification time. Use `--date YYYYMMDD-HHMM` when
-you know the export date and the folder/modification times are unsuitable.
-Older snapshots cannot overwrite newer matching partitions. Different snapshots
-for the same collection/type at the same export time are rejected as ambiguous.
-
-## Recognized filenames
+## Recognised files
 
 ```text
-lte_radio.csv
-lte_radio_neig.csv / lte_radio_neighbor.csv
-lte_pdsch.csv
-lte_pusch.csv
-nr_radio.csv
-nr_radio_neig.csv / nr_radio_neighbor.csv
-nr_pdsch.csv
-nr_pusch.csv
+lte_radio.csv        LTE Radio [connected].csv
+lte_radio_neig.csv   LTE Radio Neig.csv           (also lte_radio_neighbor.csv)
+lte_pdsch.csv        LTE PDSCH [per-carrier].csv
+lte_pusch.csv        LTE PUSCH [per-carrier].csv
+nr_radio.csv         NR Radio [connected].csv
+nr_radio_neig.csv    NR Radio Beam.csv            (also nr_radio_neighbor.csv)
+nr_pdsch.csv         NR PDSCH [per-carrier].csv
+nr_pusch.csv         NR PUSCH [per-carrier].csv
 ```
 
-QualiPoc names also work directly, without a separate staging step:
-
-```text
-LTE Radio [connected].csv
-LTE Radio Neig.csv
-LTE PDSCH [per-carrier].csv
-LTE PUSCH [per-carrier].csv
-NR Radio [connected].csv
-NR Radio Beam.csv
-NR PDSCH [per-carrier].csv
-NR PUSCH [per-carrier].csv
-```
-
-Unrecognized CSV filenames stop the import with an error rather than silently
-omitting potentially important measurements.
+An unrecognised CSV name stops the import rather than silently skipping data.
 
 ## Import versus rebuild
 
 The partition key is `database_name, collection_name, measurement_type`.
 
-- **Normal import:** matching partitions are complete snapshots, not rows to
-  append. Unrelated partitions remain unchanged. Reimporting a CSV does not
-  duplicate its measurements. Empty or fully excluded snapshots are reported
-  and leave existing measurements untouched.
-- **Rebuild:** starts from empty and replaces the complete dataset. Omitted
-  databases/collections are not retained. For the existing
-  `data/_csvs/<database>/<date>/<type>.csv` archive layout, only the newest
-  supplied file per database/type is used, including empty files. Otherwise,
-  newer supplied collection/type snapshots take precedence over older ones.
-- A header-only file outside the dated archive layout cannot identify its
-  database or collections. A rebuild rejects it if another file of the same
-  measurement type makes its scope ambiguous. Supply only the intended current
-  exports, or use the dated archive layout.
-- A full rebuild with zero accepted measurements requires `--allow-empty`.
-  Normal imports never interpret an empty input as an instruction to delete data.
+- **Import** treats each matching input as the complete new snapshot of that
+  partition. Unrelated partitions are untouched, reimporting does not duplicate
+  rows, and an empty or fully filtered input leaves existing data in place.
+- **Rebuild** starts empty and keeps only what the inputs contain. In the dated
+  archive layout only the newest file per database/type is used; otherwise the
+  newest snapshot per key wins. A rebuild with zero accepted rows needs
+  `--allow-empty`. A header-only file outside the dated layout cannot name its
+  collections and is rejected if it makes a type's scope ambiguous.
 
 ## Safe imports and rebuilds
 
-Both modes use **build → validate → briefly stop → swap → restart/check**:
+Both modes run build, validate, stop, swap, restart, check:
 
-1. Prepare a dataset in `data/_rebuild-<id>/`. Normal imports copy the existing
-   catalog and hard-link its Parquet files; rebuilds start empty. Changed
-   partitions are written to new files, so live measurements are never modified.
-2. Report raw/accepted/rule-excluded rows and empty files. Missing required
-   columns or invalid required values block activation, even in excluded rows.
-3. Read all Parquet partitions and verify schema, counts, time bounds and
-   collection identity against the catalog. Reject missing or extra files.
-4. Stop the configured website services. Preserve old SQLite links in
-   `data/shared_views.sqlite3` outside the swapped folder, and copy legacy
-   DuckDB links into the replacement catalog.
-5. Rename the active `data/_processed` to `data/_backup-<id>`, put the staged
-   dataset at the original path, restart, and check the API. Activation failures
-   restore the previous folder and restart/check it. No dataset is automatically
-   deleted.
+1. Build the dataset in `data/_rebuild-<id>/`. Imports copy the catalog and
+   hard-link unchanged Parquet; changed partitions are new files, so the live
+   dataset is never modified in place.
+2. Report raw, accepted and rule-excluded rows per file. Missing required
+   columns or invalid required values block activation.
+3. Re-read every Parquet file and check schema, counts, time bounds,
+   collection identity and spatial bounds against the catalog.
+4. Stop the managed services. Share links live in `data/shared_views.sqlite3`
+   outside the swapped folder; legacy links are copied into the new catalog.
+5. Rename `data/_processed` to `data/_backup-<id>`, move the build into place,
+   restart and check `/api/health`. Any failure restores the backup. Nothing is
+   deleted automatically.
 
-An `import-report.json` in the prepared dataset records source files and row
-counts. Failed or check-only builds are retained for inspection. Builds and
-validation use two DuckDB threads and a 1 GB memory limit. A shared import lock
-prevents overlapping imports/deletions. Source files changing during processing
-also block activation.
+Builds use two DuckDB threads and 1 GB. A lock in `data/.import.lock` prevents
+overlapping imports and deletions; a source file changing mid-run blocks
+activation. Ctrl+C or SIGTERM during activation rolls back. After a power loss
+or SIGKILL, keep the services stopped, move the broken `_processed` aside, put
+the newest `_backup-<id>` back, and restart.
 
-Activation controls the Linux server's systemd user units, defaulting to
-`cellmap-server-8000.service` and `cellmap-repo-preview-8001.service`. For other
-names, repeat `--service NAME.service`. Only initially active instances are
-restarted; if none are running, import happens offline. Unmanaged website
-processes must be stopped or placed under a named service first. Persistent
-units are restarted; transient units are recreated with their command and
-working directory. No browser automation is involved.
+## Deleting a database
 
-Ctrl+C and SIGTERM during activation trigger rollback. Power loss, SIGKILL, or
-a failure during rollback can require manual recovery. Exact backup paths are
-printed before stopping anything. Keep all instances stopped, move a failed
-active dataset aside without deleting it, restore the backup to
-`data/_processed`, and restart. Keep `data/shared_views.sqlite3` untouched.
-Do not guess which backup is current.
+`--delete-database NAME` previews; `--yes` performs it. Stop the website
+first. It removes that database's CSV archive, Parquet partitions and catalog
+records, including bounds, and nothing else. It is not a swap and has no
+rollback.
 
-## Delete a database
+## Schema
 
-Preview only:
+Defined once in `cellmap_schema.py` and shared with the website. Schema and
+filter version 3.
+
+Common to every type:
+
+```text
+measured_at TIMESTAMP (device clock, timezone-naive)
+database_name, collection_name, operator_name, model VARCHAR
+latitude, longitude DOUBLE
+```
+
+Per type, after the common columns:
+
+```text
+radio           technology, rat, band_number, pci, ssb_index, dl/ul_channel_number,
+                dl/ul_bandwidth_mhz, dl/ul_bandwidth_aggregated_mhz, dl_scs_khz,
+                cell_type, rsrp_dbm, rsrq_db, rssi_dbm, sinr_db
+radio_neighbor  technology, rat, band_number, pci, ssb_index, dl/ul_channel_number,
+                dl_scs_khz, is_serving_beam, rsrp_dbm, rsrq_db, rssi_dbm, sinr_db
+pdsch           technology, rat, band_number, pci, ssb_index, dl_channel_number,
+                dl_bandwidth_mhz, dl_bandwidth_aggregated_mhz, dl_scs_khz, cell_type,
+                throughput_mbps, mcs, avg_pdsch_layers, pdsch_rbs, bler, modulation
+pusch           technology, rat, band_number, pci, ssb_index, ul_channel_number,
+                ul_bandwidth_mhz, ul_bandwidth_aggregated_mhz, ul_scs_khz, cell_type,
+                throughput_mbps, mcs, avg_pusch_layers, pusch_rbs, modulation
+```
+
+LTE rows store `ssb_index` as NULL and SCS as 15 kHz; LTE neighbours also
+store `is_serving_beam` and `sinr_db` as NULL. NR rows store `rssi_dbm` as
+NULL. Throughput is converted from kbps to Mbps.
+
+## Normalisation and filters
+
+Header aliases are matched case-insensitively; strings are trimmed, with empty
+strings and failed numeric casts stored as NULL; `Time`, `Database` and
+`Collection` are required; `technology` comes from the file type and `rat`
+from QualiPoc `RAN Configuration`.
+
+Radio and neighbour rows are not filtered. PDSCH and PUSCH rows are kept only
+when `Test Name` is `Capacity` or `Capacity HTTP/FTP`, `Test Status` is
+`Completed`, and `Direction` is `Downlink` (PDSCH) or `Uplink` (PUSCH). The
+filter columns are not stored. Rule changes do not refilter stored data; use a
+rebuild.
+
+## Catalog
+
+`cellular.duckdb` holds `measurement_partitions` (one row per partition with
+its Parquet path, counts, time range and source hash), `processed_files`
+(raw-file SHA-256 for provenance and change detection), the `collections`
+view, and `collection_bounds` (one lat/lon box and located-row count per
+database/collection across all types; used by Geo-poly to skip collections,
+with a missing box meaning scan). `--refresh-bounds` rewrites only that
+table and needs no other readers holding the catalog open.
+
+## Tests
 
 ```bash
-.venv/bin/python scripts/import_csvs.py --delete-database DATABASE
+.venv/bin/python -m unittest discover -s tests
 ```
 
-Confirm permanent deletion (stop the website first):
-
-```bash
-.venv/bin/python scripts/import_csvs.py --delete-database DATABASE --yes
-```
-
-This separate operation removes that database's archived CSV directory, processed
-partitions and matching catalog records. It does not delete externally supplied
-CSVs, shared links, other databases, or retained dataset backups. Unlike imports,
-confirmed deletion is not a dataset-swap operation.
-
-## Tests and shared definitions
-
-`cellmap_schema.py` holds the definitions shared with the website; it is not a
-separate command. Schema/filter version: `3`.
-
-One regression-test file covers imports, filters, validation, shared links and
-rollback using synthetic data, without touching live measurements or services:
-
-```bash
-.venv/bin/python -m unittest discover -s tests -v
-```
-
-The single test file is retained for AI-assisted maintenance after code changes,
-not as a required step for every CSV import. The tests also cover collection
-bounds, polygon validity, worldwide searches, square aggregation across
-collections/databases, proportional quotas, exploration scoping/multi-select
-validation, and capped previews. The latest run passed all 54 tests.
-Service operations are mocked; these are not live deployment or browser tests.
-
-## Canonical Columns
-
-The canonical schema is defined in `cellmap_schema.py` and shared by the
-importer and website server.
-
-These columns are present in every processed measurement type:
-
-```text
-measured_at TIMESTAMP
-database_name VARCHAR
-collection_name VARCHAR
-latitude DOUBLE
-longitude DOUBLE
-operator_name VARCHAR
-model VARCHAR
-```
-
-### Radio
-
-```text
-technology VARCHAR
-rat VARCHAR
-band_number BIGINT
-pci BIGINT
-ssb_index BIGINT
-dl_channel_number BIGINT
-ul_channel_number BIGINT
-dl_bandwidth_mhz DOUBLE
-dl_bandwidth_aggregated_mhz DOUBLE
-ul_bandwidth_mhz DOUBLE
-ul_bandwidth_aggregated_mhz DOUBLE
-dl_scs_khz BIGINT
-cell_type VARCHAR
-rsrp_dbm DOUBLE
-rsrq_db DOUBLE
-rssi_dbm DOUBLE
-sinr_db DOUBLE
-```
-
-LTE radio stores `ssb_index` as `NULL` and `dl_scs_khz` as 15. NR radio
-stores `rssi_dbm` as `NULL`.
-
-### Radio Neighbor
-
-```text
-technology VARCHAR
-rat VARCHAR
-band_number BIGINT
-pci BIGINT
-ssb_index BIGINT
-dl_channel_number BIGINT
-ul_channel_number BIGINT
-dl_scs_khz BIGINT
-is_serving_beam BOOLEAN
-rsrp_dbm DOUBLE
-rsrq_db DOUBLE
-rssi_dbm DOUBLE
-sinr_db DOUBLE
-```
-
-LTE neighbor stores `ssb_index`, `is_serving_beam`, and `sinr_db` as `NULL`;
-NR neighbor stores `rssi_dbm` as `NULL`.
-
-### PDSCH
-
-```text
-technology VARCHAR
-rat VARCHAR
-band_number BIGINT
-pci BIGINT
-ssb_index BIGINT
-dl_channel_number BIGINT
-dl_bandwidth_mhz DOUBLE
-dl_bandwidth_aggregated_mhz DOUBLE
-dl_scs_khz BIGINT
-cell_type VARCHAR
-throughput_mbps DOUBLE
-mcs DOUBLE
-avg_pdsch_layers DOUBLE
-pdsch_rbs DOUBLE
-bler DOUBLE
-modulation VARCHAR
-```
-
-LTE PDSCH stores `ssb_index` as `NULL` and `dl_scs_khz` as 15. Throughput is
-converted from Kbps to Mbps.
-
-### PUSCH
-
-```text
-technology VARCHAR
-rat VARCHAR
-band_number BIGINT
-pci BIGINT
-ssb_index BIGINT
-ul_channel_number BIGINT
-ul_bandwidth_mhz DOUBLE
-ul_bandwidth_aggregated_mhz DOUBLE
-ul_scs_khz BIGINT
-cell_type VARCHAR
-throughput_mbps DOUBLE
-mcs DOUBLE
-avg_pusch_layers DOUBLE
-pusch_rbs DOUBLE
-modulation VARCHAR
-```
-
-LTE PUSCH stores `ssb_index` as `NULL` and `ul_scs_khz` as 15. Throughput is
-converted from Kbps to Mbps.
-
-## Normalization
-
-The importer:
-
-- matches supported QualiPoc header aliases;
-- trims string values;
-- stores empty strings and failed numeric casts as `NULL`;
-- requires valid `Time`, `Database`, and `Collection`;
-- derives `technology` from the source filename;
-- copies QualiPoc `RAN Configuration` into `rat`;
-- stores LTE SCS as 15 kHz;
-- stores LTE `ssb_index` as `NULL`;
-- converts QualiPoc throughput from Kbps to Mbps.
-
-Radio and Neighbour rows are not filtered by Test Name, Direction, or Test Status.
-The common validation requirements above still apply.
-
-PDSCH and PUSCH rows (both LTE and NR) are imported only when:
-
-```text
-Test Name = Capacity or Capacity HTTP/FTP
-Direction = Downlink for PDSCH; Uplink for PUSCH
-Test Status = Completed
-```
-
-The filter columns above are required input columns but are not stored.
-PDSCH excludes Uplink tests; PUSCH excludes Downlink tests. Ookla and all other
-test names are excluded from PDSCH/PUSCH imports. Existing processed data
-is unchanged until an import is run. Supplied files use schema version 3;
-unrelated older partitions remain in a normal import if their physical schema
-validates. Use a full rebuild to apply current rules throughout the dataset.
-
-## Hashing
-
-The importer retains raw CSV SHA-256 hashes for source provenance, detecting
-files changed during processing, and recognizing identical same-date inputs.
-Parquet validation also hashes decoded rows to ensure every column is read.
-
-There is no normalized-data fingerprint or unchanged-Parquet shortcut.
-Accepted matching snapshots are rewritten even when their measurements are
-identical; older inputs are still skipped and unrelated partitions are retained.
-`--force` was removed because rewriting is now the default. Reimports replace
-partitions rather than appending duplicate rows.
-
-The legacy catalog `content_hash` column is retained for compatibility with
-existing catalogs but is unused; rewritten partitions store an empty string.
-
-## DuckDB Tables
-
-```text
-measurement_partitions
-processed_files
-collections
-collection_bounds
-```
-
-`measurement_partitions` stores partition metadata and Parquet paths.
-`processed_files` stores raw-file hashes.
-`collections` stores collection-level time ranges and export metadata.
-
-## Collection bounds
-
-`collection_bounds` stores one rectangular extent per database/collection,
-combining all technologies and measurement types. Columns: `min_latitude`,
-`max_latitude`, `min_longitude`, `max_longitude`, and `located_row_count`.
-Only valid latitude/longitude pairs contribute; collections without them have
-null bounds and zero located rows. Bounds describe stored measurements after
-import filtering, not discarded CSV rows.
-
-Imports calculate these in the staged catalog, and validation compares them
-with the Parquet contents before activation. Database deletion removes its bounds.
-For existing data, the same single script can refresh only spatial metadata:
-
-```bash
-.venv/bin/python scripts/import_csvs.py --refresh-bounds
-```
-
-This does not reimport, rewrite Parquet, or manage services. It reads coordinates
-with a read-only connection, then briefly opens the catalog for writing and
-replaces bounds in a transaction. If another process holds a DuckDB read lock,
-the write can fail safely; stop readers before retrying. The import lock prevents
-overlap with this script's other data operations.
-
-Geo-poly's grid sizes, sampling, exploration menus, and previews are query-time
-features; they do not require reimporting CSVs or storing grid caches. Bounds
-remain one box per collection across all types. See the [website guide](../website/README.md).
-The current 100 km default and initial exploration/primary filter alignment
-are UI/query settings, not changes to the import schema or stored measurements.
+One synthetic suite (54 tests) covers import rules, validation, swap and
+rollback, share-link migration, bounds, polygon search, square aggregation,
+quotas and exploration. Services are mocked; nothing touches live data.

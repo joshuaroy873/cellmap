@@ -1,353 +1,152 @@
 # Website
 
-## Purpose
-
-The website serves a lightweight cellular measurement explorer from the local
-DuckDB catalog and Parquet partitions in `data/_processed`.
-
-There is no frontend build step.
-
-This guide describes source at `b79c7e6` as reviewed on 2026-09-28. The owner
-reported pushing the implementation; the tracked tree was clean before this
-documentation update. Running processes may not have loaded that revision.
+A Python HTTP server (`website/server.py`) that answers JSON queries from
+DuckDB over the Parquet partitions in `data/_processed` and serves the static
+frontend in `website/static`. No frontend build step; Leaflet 1.9.4 is vendored.
 
 ## Run
 
-From the repository root:
-
 ```bash
-source .venv/bin/activate
-python website/server.py
+.venv/bin/python website/server.py                      # 127.0.0.1:8000
+.venv/bin/python website/server.py --host 0.0.0.0 --port 8000
 ```
 
-Open:
+On `ghoshlab2` the site is service-managed; see [service.md](../service.md).
+Do not start a second copy next to the services.
 
-```text
-http://127.0.0.1:8000
-```
+## Configuration
 
-Listen on the local network:
-
-```bash
-python website/server.py --host 0.0.0.0 --port 8000
-```
-
-These commands start foreground processes. Do not start a duplicate if the
-website is already service-managed. Safe importer activation requires a Linux
-systemd user manager and refuses unmanaged website processes.
-
-Configured setup on `ghoshlab2` (runtime status not rechecked for this doc update):
-
-- Public system unit `cellmap.service`: `127.0.0.1:8000`, exposed through
-  Cloudflare at `https://cellmap.joshuaroy873.com`.
-- Preview user unit `cellmap-local.service`: `100.85.31.36:8001`, accessible over
-  Tailscale at `http://ghoshlab2.taila7dab6.ts.net:8001/`. Use the full hostname
-  for CARTO referrer restrictions, not the short hostname or IP.
-
-Ask the owner before every restart; no automatic restart after edits. Backend
-changes require a restart; static changes require a page refresh. Both services
-share this repo/data, so the preview is not isolated. See [service.md](../service.md).
-The old transient user units are obsolete, but the importer still defaults to
-them and only manages user services. Its activation integration must be adapted
-before use with this deployment; `--service cellmap.service` alone is insufficient.
-
-## Basemap key
-
-Create `.env` at the repository root with:
-
-```dotenv
-CARTO_BASEMAP_KEY=your-key-here
-```
-
-The server reads this file automatically when the browser requests `/api/config`.
-An environment variable named `CARTO_BASEMAP_KEY` takes priority over the file.
-Single or double quotes, comment lines, and trailing comments are supported;
-shell commands and variable expansion are not evaluated. No extra dependency
-or manual sourcing is required. Refresh after updating `.env`; restart the server
-if you change its environment variables.
-
-`.env` and `.env.*` are ignored by Git. Keep `.env` outside `website/static`.
-The config endpoint returns only
-the basemap key, not the rest of the environment or the file. The key is visible
-in browser requests, so restrict it to your deployment host in CARTO.
-
-For `https://cellmap.joshuaroy873.com`, allow the Referer host
-`cellmap.joshuaroy873.com`. Shared `?share=...` URLs use the same host. Requests
-from local development need their own allowed host or a separate development
-key. The server's `strict-origin-when-cross-origin` referrer policy sends only
-the origin to CARTO, without the shared-view query string.
-
-Tiles use the [authenticated CARTO Positron endpoint](https://carto.com/blog/positron-dark-matter-new-look/).
-If no key is configured or the config request fails, measurements can still load
-and the map shows a background-unavailable notice; details appear in the browser
-console. If authenticated tiles still show the old watermark, force-refresh.
+`CARTO_BASEMAP_KEY` supplies the basemap tiles. The server reads it from the
+environment, else from `.env` at the repository root (`KEY=value`, quotes and
+`#` comments allowed, no shell expansion). The key is embedded in the served
+page and also available from `/api/config`; without it the map still works
+with a "background unavailable" notice. The key is visible to browsers, so
+restrict it in CARTO to the deployment hostnames.
 
 ## Files
 
 ```text
-website/server.py          HTTP API and static file server
-website/static/index.html  page structure
-website/static/styles.css  layout and styling
-website/static/state.js    shared UI state and DOM handles
-website/static/api.js      JSON request helper
-website/static/filters.js  collection and filter controls
-website/static/map_view.js Leaflet map and selected-point details
-website/static/geo_view.js polygon drawing, filters, region results, and square preview
-website/static/charts.js   summary, time-series, and CDF drawing
-website/static/compare_view.js   Compare-tab curve builder
-website/static/compare_charts.js Compare-tab grouped CDF charts
-website/static/share_view.js     shared Map-view links
-website/static/app.js      page initialization and event wiring
-website/compare_api.py     batch CDF API for the Compare tab
+server.py          HTTP API, static files, shared links
+compare_api.py     Compare-tab batch CDF
+static/index.html  page structure (one <main> per tab)
+static/styles.css  layout
+static/state.js    DOM handles, shared state, the Start/End time fields
+static/api.js      fetch helpers
+static/filters.js  collection picker, filter cascade, /api/view loading
+static/map_view.js Map tab: markers, legend, point details, basemap
+static/charts.js   summary, time series, CDF modal, colour scale
+static/compare_view.js, compare_charts.js   Compare tab
+static/geo_view.js Geo-poly tab
+static/share_view.js  Share button and ?share= restore
+static/app.js      initialisation, tabs, event wiring
 ```
 
-Leaflet 1.9.4 is vendored in `website/static/vendor/leaflet`.
-Map tiles use CARTO Positron.
-The current map page is isolated in `map_view.js`; future tabs can add their
-own view files without changing the API helper or filter code.
+Each tab keeps its own state in its own file and reuses only the helpers in
+`state.js`, `api.js` and `charts.js`. Adding or removing a tab touches
+`index.html`, its own view file, one endpoint, and the tab switch in `app.js`.
 
 ## API
 
-```text
-GET /api/health
-GET /api/config
-GET /api/catalog
-GET /api/options
-GET /api/view
-GET /api/measurements
-GET /api/point
-GET /api/cdf
-POST /api/compare/cdf
-POST /api/geo/search
-GET /api/geo/options
-POST /api/shared-views
-GET /api/shared-views/<id>
-```
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/health` | liveness |
+| `GET /api/config` | basemap key (fallback; the page carries it) |
+| `GET /api/catalog` | databases, collections, time ranges, available measurement types |
+| `GET /api/options` | filter choices with row counts for a database/collection selection |
+| `GET /api/view` | `options` plus `measurements` in one round trip; filter values are validated server-side and the applied ones returned as `selected` |
+| `GET /api/measurements` | summary statistics, sampled map points, optional time series |
+| `GET /api/point` | every stored field of one mapped point, by `position` |
+| `GET /api/cdf` | 401-point CDF for the current filters |
+| `POST /api/compare/cdf` | up to 20 curves in one request |
+| `POST /api/geo/search` | Geo-poly polygon or worldwide grid search |
+| `GET /api/geo/options` | dataset-wide operator/band combinations (cached per catalog version) |
+| `POST /api/shared-views`, `GET /api/shared-views/<id>` | create and read share links |
 
-The API accepts predefined measurement types, metrics, and filters only.
-JSON responses use gzip when supported by the browser.
-Static JavaScript/CSS URLs are content-versioned with ETag/cache handling.
-Queries and aggregation run on the server; the browser renders bounded results.
+Query parameters are `database`, repeated `collection`, `measurement`,
+`technology`, `operator`, `band` (`LTE:2`, `NR:78`), `pci`, `ssb`
+(`__null__` selects rows without an SSB index), `metric`, `start`, `end`.
+Values are validated against the schema; unknown values are errors, not
+silent no-ops. Errors are `{"error": "..."}` with 400, 404, 503 or 500.
 
-Payload limits:
+Limits: 6,000 map points, 6,000 Geo-poly squares, 200 polygon vertices,
+about 500 time-series buckets, 20 compare curves, 1 MB request bodies.
 
-```text
-map points          6,000 max
-Geo-poly squares    6,000 max (counts include all matches)
-time-series buckets about 500
-CDF points          401 quantile points
-Compare curves      20 max per request
-```
+### Time filters
 
-## UI
+`start` and `end` accept `YYYY-MM-DD HH:MM[:SS[.ffffff]]` with `T` or a
+space. An unparseable value is a 400. An `end` without seconds covers its whole
+minute, so `end=2025-05-05T10:06` includes `10:06:59.999999`. This matches the
+UI, which edits times to the minute.
 
-Top controls:
+### Request handling
 
-```text
-database, collection, start time, end time
-```
+- Every connection uses `QUERY_CONFIG` from `cellmap_schema.py` (16 threads,
+  8 GB). DuckDB shares one engine per process, so a `SET` on any connection
+  would apply to all; never add per-connection settings.
+- At most 8 data requests run at once; others wait up to 20 s, then get 503.
+  Geo-poly additionally runs one search at a time.
+- HTTP/1.1 keep-alive with a 30 s idle timeout. JSON is gzipped; static
+  JS/CSS URLs are content-hashed and cached immutably; the page is `no-cache`
+  with an ETag.
+- Geo options and the versioned page are warmed in a background thread at
+  startup.
+- Responses refuse NaN/Infinity; queries only consider finite metric values.
 
-Filter controls:
+## Map tab
 
-```text
-measurement type, technology, operator, band, PCI, SSB index, metric
-```
+Top bar: database, collections (multi-select with Select all), Start and End
+(a date picker plus a 24-hour `HH:MM` box; an empty box means `00:00` or
+`23:59`). Left pane: measurement type, technology, operator, band, PCI, SSB
+index, metric. Each change makes one `/api/view` request; the server
+re-validates the cascade, so a value that no longer exists falls back to All.
 
-Main panels:
+The map draws up to 6,000 points sampled evenly in time order and fetches a
+point's full record on click. Colours span the 1st to 99th percentile of the
+whole result so one outlier cannot flatten the palette; the legend marks a
+clipped end with `≤` or `≥`. Summary statistics (count, median, P5, P95, min,
+max) cover every matching row, including rows without GPS that cannot be
+drawn. The time series appears once an operator is selected. Show CDF opens a
+modal drawn from `/api/cdf`.
 
-```text
-Map tab: colored measurement map, time-series chart, summary statistics,
-selected-point details, CDF modal
-Compare tab: per-curve filters and grouped CDF charts
-Geo-poly tab: polygon drawing, filters, database/collection results, aggregated squares
-```
+Share saves the Map selection (not data) in `data/shared_views.sqlite3` and
+copies a `?share=<id>` link that restores it on the same server. Legacy links
+in the DuckDB catalog and in `data/_processed/shared_views.sqlite3` remain
+readable.
 
-Geo-poly initializes its map only when opened. Click Search polygon, place
-vertices, and click the first point to close. A polygon is optional: without one,
-Search covers all stored locations worldwide, not just the viewport (within
-Web Mercator's latitude limits). The polygon button reads Restart polygon while
-drawing and after closing, until a search succeeds. After success it reads
-Search polygon and is disabled; Search becomes Reset search. Reset clears
-the polygon, results, and collection selection, retains filters/grid size, and
-re-enables drawing and Search. There is no separate Clear polygon button.
-Failed searches use one Retry search toolbar button, not an extra inline button.
-Retry search clears the failed search, polygon, and results, returning to idle
-Search polygon / Search controls. It preserves left-pane filters and grid size,
-does not start drawing, and does not automatically resubmit a query.
-Editing any left-pane value reactivates Search without clearing the polygon;
-the next Search creates a new primary search and selects all its result collections.
-Choose filters before or after drawing, then click Search to submit them together. Shading is visible
-during drawing; results show only a thin, faint outline. The right pane uses
-plain HTML checkboxes and collapsed database disclosure lists, with indented
-collections. All matches are selected initially. Selection changes refresh
-the preview. The left pane filters measurement type, operator, band,
-and metric; Technology/PCI/SSB dropdowns are not offered here. All technologies
-are included unless a technology-qualified band is selected. Top-bar controls are hidden.
-Filter choices load independently of the polygon from dataset-wide metadata.
-The server reuses this small metadata list until the catalog changes; the page
-loads it once per session (refresh the page after importing data). Dropdown
-changes are local and do not run measurement queries; click Search to apply.
-Choices are not guarantees of matches inside your polygon. Metrics come from
-the schema and may have no values for a particular selection.
+## Compare tab
 
-Filters and the polygon are applied before aggregation. Manually select square
-**side lengths** of 1 m, 10 m, 100 m, 1 km, 10 km, or 100 km (default), in Web Mercator
-projected meters (not ground-distance meters). Click Search to apply changes.
-Zooming, panning, and reopening the tab do not query measurements or change
-grid size. Choose Average or Maximum.
-The left-pane note reads only `Web Mercator projected meters.`
-Average is the arithmetic mean of stored
-values, including dBm, weighted by measurement count when collections overlap.
-Only finite values of the selected metric contribute. A shared square combines
-all selected collections; edge squares can extend beyond the drawn polygon,
-but their contributing measurements cannot.
+Uses the top-bar database, collection scope and time range. Each curve picks a
+collection subset, measurement/metric, radio filters, colour and line style.
+Run compare sends all curves in one request and groups charts by metric.
+Changing any input invalidates the previous result until rerun.
 
-Square hover text is compact: `Average: -95.23 · 1,234 measurements` (or
-`Maximum`). Values use two decimals, without metric name/unit/grid size in the
-tooltip. Counts above 9,999 use approximate thousands with one decimal, such as
-`~12.3k measurements`; smaller counts remain exact. The legend identifies the
-metric/unit, and clicking the square still selects matching collections.
+## Geo-poly tab
 
-At most 6,000 squares are displayed: from the current viewport with a polygon,
-or worldwide without a polygon. When needed, each
-collection receives a quota proportional to its filtered occupied-square count
-in that preview area; cells are selected by a deterministic coordinate hash. For
-disjoint coverage of 4,000 and 8,000 cells, quotas are 2,000 and 4,000. Overlaps
-are displayed once and spare slots are filled from remaining cells, so exact
-per-collection displayed proportions are not guaranteed for overlapping data.
-This is a sample, not a guarantee of uniform geographic coverage. The viewport
-is captured when a search runs; moving the map leaves those squares unchanged.
-To refine a sample, reset and draw a smaller polygon for a new search.
-Counts include all area/filter
-matches, not just the preview. Result collection checkboxes still trigger a
-debounced search when there are no pending filter edits.
+Cross-database search aggregated into Web Mercator squares (side 1 m to
+100 km in projected metres, not ground metres). Draw a polygon by clicking
+vertices and closing on the first one, or search worldwide without one.
+Filters (measurement type, operator, band, metric, Average/Maximum) and the
+polygon are staged until Search. Points on the polygon edge count; invalid,
+self-crossing or date-line-crossing polygons are rejected.
 
-The result summary uses two lines:
+Average is the arithmetic mean of stored values (dBm included) over all
+selected collections, weighted by count; Maximum is the largest value.
+Collections whose stored bounds miss the polygon are skipped without reading
+them. The right pane lists matching databases and collections with counts;
+unchecking one recomputes. Clicking a square selects exactly the collections
+present in it. Explore results broadens operators/bands within the primary
+result collections and area with a 300 ms debounce; Return to primary reruns
+the original request.
 
-```text
-1,140,565 selected measurements
-250/250 squares in the searched view
-```
+When more than 6,000 squares are eligible in the captured view, each
+collection gets a proportional quota and squares are chosen by a deterministic
+hash. Sampling only decides which squares are shown; every square's value uses
+all of its measurements. The summary shows total matching measurements and
+shown/eligible squares. Pan and zoom never query; Reset search clears results
+and the polygon but keeps filters.
 
-The first line counts every finite-metric measurement matching the active
-primary or exploration filters, checked collections, and original area. It is
-not limited by the viewport or 6,000-square sample. The second line is displayed
-squares / eligible squares in the captured preview area; worldwide searches
-say `worldwide` instead. Changing only grid size does not change the first count.
-Exploration updates both counts for its selections; returning to primary
-requeries the primary counts. The fixed-height summary prevents list shifting.
-
-The right pane has one Select all checkbox below the measurement summary and
-above the collection list. Uncheck it to deselect all; a mixed state indicates
-partial selection. Clicking a square selects all
-collections with filter-matching measurements in it and deselects other listed
-collections, then recomputes. This includes currently unchecked collections at
-that location; the selection applies to entire collections, not just that cell.
-Square values always combine every matching measurement from selected
-collections/databases: Average is sum/count, Maximum is the largest value.
-Sampling selects which squares to display, never which measurements to aggregate.
-
-At the bottom of the right pane, **Explore results** offers a classic single-value
-grid-size select and floating checkbox menus for operators and bands. Grid size's
-label and narrower select share one line. Menu summaries show a single selected
-value, All, None, or the selection count. Menus close on outside click or Escape and
-open above the control when space below is limited. The choices include
-all operators/bands with finite values for the primary metric in the primary
-result collections that are currently checked, within the original area, not just those allowed by the primary
-operator/band filters. Values are unique across those collections and refresh
-immediately when collection checkboxes change, using per-collection choice
-metadata (no extra lookup query). With no collections selected, the menus are
-empty. Unchecked operator/band choices are remembered when their collections
-are deselected and reselected. After a primary search (and after returning to
-primary results), the exploration grid/operator/band selections match the primary
-request. A primary All filter checks all available values; a specific filter
-checks only that value, while other available choices remain visible. Operators are ORed
-together, bands are ORed together, and the two groups are ANDed; selecting none
-in either group gives no matches. Unknown values are explicitly selectable.
-Changes apply automatically after a 300 ms debounce, grouping rapid edits into
-one query. There is no Apply button. Outdated responses are ignored.
-The area, captured preview viewport, measurement type, metric, and aggregation
-stay fixed. Collection checkboxes continue to apply; zero-match collections stay
-listed so they can be selected again. Left-pane controls are not changed.
-Return to primary results reruns the original request with its original grid,
-operator/band settings, and all original primary selections. This button is
-disabled until an exploration query succeeds, while a query is running, and
-again after returning to primary results. Only request
-settings and choice metadata are retained, not grid results; changed underlying
-data can therefore change the result when replayed. Left-pane edits invalidate
-the previous exploration and create a new primary search when Search is clicked.
-
-Every search recomputes on the server without caching point/grid results or
-reusing Map results. The Map tab itself is unchanged.
-
-Points on polygon edges are included; missing/out-of-range GPS is excluded.
-Latitudes outside Web Mercator's approximately ±85.05113° range are excluded.
-Self-crossing/zero-area polygons and date-line-crossing edges are rejected.
-Polygons support up to 200 vertices. There is one concurrent search per process.
-
-`cellmap_geo.py` is a shared backend module, not a command or service. It stores
-one bounding box per database/collection (all technologies/types combined),
-skips nonoverlapping collections, then runs the exact polygon test on the server.
-It uses DuckDB's official spatial extension, installed once for the server user:
+The spatial extension is installed once for the server user:
 
 ```bash
 .venv/bin/python -c "import duckdb; duckdb.connect().execute('INSTALL spatial')"
 ```
-
-The existing catalog was backfilled with 248 collection bounds without changing
-measurements. Future imports refresh them automatically. Missing bounds fall
-back to scanning the collection, never silently excluding it. See the
-[import guide](../scripts/README.md#collection-bounds).
-
-On the Map tab, the collection dropdown supports multiple collections and Select all.
-Band values are technology-qualified, such as `b48` and `n48`.
-Band, PCI, and SSB options show matching row counts.
-
-The time-series query is skipped until one operator is selected.
-
-The CDF modal is drawn in browser canvas from `/api/cdf`.
-It shows P5, median, and P95 in the header and chart callouts.
-
-The Share button saves the current Map database, selected collections, time
-range, and filters as a small record in `data/shared_views.sqlite3`. It copies a short `?share=`
-link that restores the same Map view for someone using the same server and
-catalog. A shared link does not include measurement data.
-
-On startup, existing SQLite links in `data/_processed/shared_views.sqlite3`
-are copied to the stable location without deleting the original store. Legacy
-DuckDB links remain readable. The [import workflow](../scripts/README.md#safe-imports-and-rebuilds)
-preserves both kinds of links, but a link cannot display collections omitted
-from the replacement dataset.
-
-The Compare tab uses the top-bar database, collection scope, and time range.
-Each curve selects one or more collections from that scope, with its own
-measurement/metric, color, line style, and radio filters. Running Compare sends
-the configured curves to `POST /api/compare/cdf` in one batch request and groups
-the returned charts by measurement/metric. Relevant selection changes invalidate
-previous results; run Compare again to refresh them.
-
-Rows without coordinates cannot appear on the map, but remain eligible for
-summary statistics, time-series, and CDF queries when other filters match.
-
-## Notes
-
-`scripts/import_csvs.py /path/to/csv-folder` implements separate build/validation
-followed by stop/swap/restart for supported user services. Its current service
-integration does not match this deployment; see the warning above and service.md.
-Use `--check-only` to validate without changing the active dataset.
-Normal imports preserve unrelated partitions; `--rebuild` replaces the entire
-dataset using supplied CSVs. The safe-import workflow and stable SQLite location
-have not been verified through a live rebuild/swap for this work. Startup handles
-legacy share migration; do not infer a process's loaded version from source files.
-
-The importer can also remove a complete local database. Stop the server first,
-preview the removal with:
-
-```bash
-.venv/bin/python scripts/import_csvs.py --delete-database DATABASE
-```
-
-The preview lists every catalog collection. Then add `--yes` only when ready to
-permanently remove that database's archive, generated partitions, and catalog
-metadata. The [scripts guide](../scripts/README.md#delete-a-database) describes
-the full scope.
