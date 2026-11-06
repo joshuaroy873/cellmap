@@ -1151,6 +1151,10 @@ h2 {
     grid-template-columns: 210px minmax(0, 1fr);
   }
 
+  #debug-tab.workspace {
+    grid-template-columns: 210px minmax(0, 1fr) 300px;
+  }
+
   .compare-workspace {
     grid-template-columns: minmax(420px, 500px) minmax(0, 1fr);
   }
@@ -1232,10 +1236,29 @@ h2 {
 }
 
 /* Debug tab (temporary) */
-.debug-collections-card {
+#debug-tab.workspace {
+  grid-template-columns: 235px minmax(0, 1fr) 400px;
+}
+
+.debug-results {
+  grid-column: 3;
+  grid-row: 1 / 3;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.4rem;
+  min-height: 0;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.debug-results h2 {
+  margin: 0;
+}
+
+.debug-bottom-panel {
+  grid-template-columns: minmax(185px, 1fr) minmax(230px, 1.4fr);
 }
 
 .debug-collections {
