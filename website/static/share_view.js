@@ -140,6 +140,7 @@ async function restoreSharedView(state) {
   }
 
   controls.database.value = database.name;
+  renderDatabasePicker();
   populateCollections(true);
   const missingCollections = applySharedCollections(state.collections || []);
   if (!selectedCollections().length) {

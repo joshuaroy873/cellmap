@@ -175,6 +175,103 @@ function populateCollections(reset = false) {
   populateMeasurementTypes();
 }
 
+// The hidden <select id="database"> stays the source of truth; this picker
+// mirrors its options and sets its value, so every reader of
+// controls.database and the "change" listener keep working unchanged.
+function databaseNames() {
+  return [...controls.database.options].map((option) => option.value).filter(Boolean);
+}
+
+function renderDatabasePicker() {
+  const current = controls.database.value;
+  controls.databaseSummary.textContent = current || "Select database";
+  controls.databaseSummary.title = current;
+
+  const query = controls.databaseSearch.value.trim().toLowerCase();
+  const shown = databaseNames().filter((name) => name.toLowerCase().includes(query));
+  controls.databaseList.replaceChildren();
+  if (!shown.length) {
+    const empty = document.createElement("p");
+    empty.className = "database-empty";
+    empty.textContent = databaseNames().length
+      ? "No databases match the search."
+      : "No databases available.";
+    controls.databaseList.append(empty);
+    return;
+  }
+  for (const name of shown) {
+    const option = document.createElement("button");
+    option.className = "database-option";
+    option.type = "button";
+    option.dataset.value = name;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", name === current ? "true" : "false");
+    option.classList.toggle("selected", name === current);
+    option.textContent = name;
+    controls.databaseList.append(option);
+  }
+}
+
+function chooseDatabase(name) {
+  controls.databasePicker.open = false;
+  if (name === controls.database.value) {
+    renderDatabasePicker();
+    return;
+  }
+  controls.database.value = name;
+  renderDatabasePicker();
+  controls.database.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function initializeDatabasePicker() {
+  controls.databasePicker.addEventListener("toggle", () => {
+    if (!controls.databasePicker.open) return;
+    controls.databaseSearch.value = "";
+    renderDatabasePicker();
+    controls.databaseSearch.focus();
+  });
+
+  controls.databaseSearch.addEventListener("input", renderDatabasePicker);
+  controls.databaseSearch.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const first = controls.databaseList.querySelector(".database-option");
+      if (first) chooseDatabase(first.dataset.value);
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      controls.databaseList.querySelector(".database-option")?.focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      controls.databasePicker.open = false;
+      controls.databaseSummary.focus();
+    }
+  });
+
+  controls.databaseList.addEventListener("click", (event) => {
+    const option = event.target.closest(".database-option");
+    if (option) chooseDatabase(option.dataset.value);
+  });
+  controls.databaseList.addEventListener("keydown", (event) => {
+    const option = event.target.closest(".database-option");
+    if (!option) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const sibling = event.key === "ArrowDown"
+        ? option.nextElementSibling
+        : option.previousElementSibling;
+      (sibling ?? controls.databaseSearch).focus();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      controls.databasePicker.open = false;
+      controls.databaseSummary.focus();
+    }
+  });
+
+  // Keep the summary in step with programmatic changes (share links).
+  controls.database.addEventListener("change", renderDatabasePicker);
+  renderDatabasePicker();
+}
+
 function collectionPopoutItems(scope) {
   if (scope === "compare") return sortCollectionItems(compareCollectionItems());
   return sortCollectionItems(mapCollectionItems());

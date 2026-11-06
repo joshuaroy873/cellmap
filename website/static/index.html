@@ -20,12 +20,26 @@
         </div>
       </div>
 
-      <label>
-        Database
-        <select id="database">
+      <div class="collection-field">
+        <span>Database</span>
+        <details class="database-picker">
+          <summary id="database-summary">Select database</summary>
+          <div class="database-options">
+            <input
+              id="database-search"
+              class="database-search"
+              type="search"
+              placeholder="Search databases"
+              autocomplete="off"
+              aria-label="Search databases"
+            />
+            <div id="database-list" class="database-list" role="listbox"></div>
+          </div>
+        </details>
+        <select id="database" hidden aria-hidden="true" tabindex="-1">
           <option value="">Select database</option>
         </select>
-      </label>
+      </div>
       <div class="collection-field">
         <span>Collection</span>
         <details class="collection-picker">

@@ -50,6 +50,10 @@ function timeField(dateId, clockId, emptyClock) {
 
 const controls = {
   database: $("database"),
+  databasePicker: document.querySelector(".database-picker"),
+  databaseSummary: $("database-summary"),
+  databaseSearch: $("database-search"),
+  databaseList: $("database-list"),
   collectionField: document.querySelector(".collection-field"),
   collectionPicker: document.querySelector(".collection-picker"),
   collectionOptions: $("collection-options"),

@@ -140,6 +140,7 @@ async function initialize() {
     for (const database of catalog.databases) {
       controls.database.add(new Option(database.name, database.name));
     }
+    renderDatabasePicker();
     populateCollections(true);
     applyCollectionRange();
     resetFilterOptions();
@@ -258,6 +259,9 @@ document.addEventListener("click", (event) => {
   if (controls.collectionPicker && !controls.collectionPicker.contains(event.target)) {
     controls.collectionPicker.open = false;
   }
+  if (controls.databasePicker && !controls.databasePicker.contains(event.target)) {
+    controls.databasePicker.open = false;
+  }
 });
 
 controls.measurement.addEventListener("change", async () => {
@@ -358,5 +362,6 @@ chartResizeObserver.observe(compareControls.charts);
 
 document.body.dataset.tab = activeTab;
 initializeCollectionPopout();
+initializeDatabasePicker();
 initializeSharedViews();
 initialize();

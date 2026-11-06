@@ -104,10 +104,12 @@ label {
   text-transform: uppercase;
 }
 
+.database-picker,
 .collection-picker {
   position: relative;
 }
 
+.database-picker summary,
 .collection-picker summary {
   min-height: 2.35rem;
   padding: 0.58rem 1.8rem 0.45rem 0.55rem;
@@ -125,10 +127,12 @@ label {
   white-space: nowrap;
 }
 
+.database-picker summary::-webkit-details-marker,
 .collection-picker summary::-webkit-details-marker {
   display: none;
 }
 
+.database-picker summary::after,
 .collection-picker summary::after {
   position: absolute;
   top: 0.8rem;
@@ -138,6 +142,7 @@ label {
   content: "";
 }
 
+.database-options,
 .collection-options {
   position: absolute;
   z-index: 1200;
@@ -151,6 +156,49 @@ label {
   border-radius: 7px;
   background: #fff;
   box-shadow: var(--shadow);
+}
+
+.database-search {
+  position: sticky;
+  z-index: 1;
+  top: -0.35rem;
+  min-height: 2.1rem;
+  margin-bottom: 0.35rem;
+}
+
+.database-list {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.database-option {
+  min-height: 0;
+  padding: 0.45rem 0.5rem;
+  border-color: transparent;
+  border-radius: 5px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.database-option:hover,
+.database-option:focus-visible {
+  background: var(--soft);
+}
+
+.database-option.selected {
+  background: #eaf6fa;
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.database-empty {
+  margin: 0;
+  padding: 0.45rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .collection-option {
