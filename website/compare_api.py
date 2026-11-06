@@ -357,7 +357,7 @@ def compare_cdf_payload(
         raise ValueError("Compare curves must be objects")
 
     start = parse_timestamp(clean_string(request.get("start")), "start time")
-    end = parse_timestamp(clean_string(request.get("end")), "end time")
+    end = parse_timestamp(clean_string(request.get("end")), "end time", whole_minute=True)
     if start and end and start > end:
         raise ValueError("Start time must not be after end time")
 

@@ -79,6 +79,21 @@ label {
   text-transform: uppercase;
 }
 
+.time-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 4.4em;
+  gap: 0.3rem;
+}
+
+.time-field input {
+  min-width: 0;
+}
+
+.time-field input[type="text"] {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .collection-field {
   display: grid;
   gap: 0.32rem;

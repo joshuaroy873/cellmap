@@ -296,11 +296,13 @@ TIMESTAMP_PATTERN = re.compile(
 )
 
 
-def parse_timestamp(value, label):
-    """Parse browser datetime-local text (any fractional-second length) or fail loudly.
+def parse_timestamp(value, label, whole_minute=False):
+    """Parse browser time-filter text (any fractional-second length) or fail loudly.
 
     Python 3.10's fromisoformat rejects one- or two-digit fractions such as
     10:52:19.4, which the browser produces after trimming trailing zeros.
+    With whole_minute, a value given to the minute means the end of that
+    minute, so an end time of 10:06 includes 10:06:59.999999.
     """
     if value is None:
         return None
@@ -313,6 +315,8 @@ def parse_timestamp(value, label):
     if not match:
         raise ValueError(f"{label} must look like YYYY-MM-DD HH:MM[:SS[.ffffff]]")
     day, minute, second, fraction = match.groups()
+    if whole_minute and second is None:
+        second, fraction = "59", "999999"
     normalized = f"{day}T{minute}:{second or '00'}.{(fraction or '').ljust(6, '0')}"
     try:
         return datetime.fromisoformat(normalized)

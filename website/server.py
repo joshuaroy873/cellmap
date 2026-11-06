@@ -687,7 +687,7 @@ def filtered_query(
         append_band_filter(clauses, params, band)
 
     start = parse_timestamp(query_value(query, "start"), "start time")
-    end = parse_timestamp(query_value(query, "end"), "end time")
+    end = parse_timestamp(query_value(query, "end"), "end time", whole_minute=True)
     if start and end and start > end:
         raise ValueError("Start time must not be after end time")
     if start:
