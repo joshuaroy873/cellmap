@@ -148,7 +148,7 @@ label {
   z-index: 1200;
   top: calc(100% + 0.25rem);
   left: 0;
-  width: max(100%, 270px);
+  width: max(100%, 320px);
   max-height: 260px;
   padding: 0.35rem;
   overflow: auto;
@@ -242,6 +242,16 @@ label {
   position: static;
   flex: 1 1 auto;
   border-bottom: 0;
+}
+
+.collection-search {
+  flex: 1 1 5rem;
+  min-width: 0;
+  min-height: 0;
+  align-self: center;
+  margin: 0.28rem 0.35rem 0.28rem 0;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.78rem;
 }
 
 .collection-popout-button {

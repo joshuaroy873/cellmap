@@ -32,6 +32,7 @@ const compareResetAfter = {
 
 let compareOpenCollectionCurve = null;
 const compareCollectionScroll = {};
+const compareCollectionQuery = {};
 
 function invalidateCompareResults() {
   const hadResults = comparePayload || compareRunPending;
@@ -220,7 +221,9 @@ function makeCompareCollectionPicker(curve) {
     const allText = document.createElement("span");
     allText.textContent = "Select all";
     allLabel.append(allInput, allText);
-    options.append(makeCollectionActions(allLabel, "compare", curve.id));
+    options.append(
+      makeCollectionActions(allLabel, "compare", curve.id, compareCollectionQuery[curve.id] || "")
+    );
   }
 
   for (const collection of collections) {
@@ -237,6 +240,7 @@ function makeCompareCollectionPicker(curve) {
     label.append(checkbox, text);
     options.append(label);
   }
+  applyCollectionSearch(options);
 
   picker.append(summary, options);
   field.append(title, picker);
@@ -701,7 +705,7 @@ async function updateCompareCollections(input) {
   const selector = `input[data-compare-collection][data-curve-id="${curve.id}"]`;
   const collectionInputs = [...compareControls.entries.querySelectorAll(selector)];
   if ("compareSelectAll" in input.dataset) {
-    for (const checkbox of collectionInputs) {
+    for (const checkbox of shownCollectionInputs(collectionInputs)) {
       checkbox.checked = input.checked;
     }
   }
@@ -713,6 +717,12 @@ async function updateCompareCollections(input) {
 }
 
 async function updateCompareCurve(event) {
+  const search = event.target.closest("[data-collection-search]");
+  if (search) {
+    // Remember the query so a re-render of the entries keeps it.
+    if (event.type === "input") compareCollectionQuery[search.dataset.curveId] = search.value;
+    return;
+  }
   const curveSelect = event.target.closest("input[data-curve-select]");
   if (curveSelect) {
     if (event.type !== "change") return;

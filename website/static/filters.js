@@ -85,11 +85,71 @@ function makeCollectionPopoutButton(scope, curveId = "") {
   return button;
 }
 
-function makeCollectionActions(selectAllLabel, scope, curveId = "") {
+function makeCollectionSearch(curveId = "", query = "") {
+  const search = document.createElement("input");
+  search.className = "collection-search";
+  search.type = "search";
+  search.placeholder = "Search";
+  search.autocomplete = "off";
+  search.setAttribute("aria-label", "Search collections");
+  search.dataset.collectionSearch = "";
+  if (curveId) search.dataset.curveId = curveId;
+  search.value = query;
+  return search;
+}
+
+function makeCollectionActions(selectAllLabel, scope, curveId = "", query = "") {
   const actions = document.createElement("div");
   actions.className = "collection-actions";
-  actions.append(selectAllLabel, makeCollectionPopoutButton(scope, curveId));
+  actions.append(
+    selectAllLabel,
+    makeCollectionSearch(curveId, query),
+    makeCollectionPopoutButton(scope, curveId)
+  );
   return actions;
+}
+
+// Hides the names in an in-place picker that do not match its search box.
+function applyCollectionSearch(options) {
+  const search = options?.querySelector("[data-collection-search]");
+  if (!search) return;
+  const query = search.value.trim().toLowerCase();
+  for (const label of options.querySelectorAll(".collection-option")) {
+    if (label.classList.contains("collection-select-all")) continue;
+    label.hidden = query !== "" && !label.textContent.toLowerCase().includes(query);
+  }
+}
+
+// Inputs still shown after the search filter; "Select all" acts on these.
+function shownCollectionInputs(inputs) {
+  return inputs.filter((input) => !input.closest("label")?.hidden);
+}
+
+function collectionSearchQuery(options) {
+  return options?.querySelector("[data-collection-search]")?.value || "";
+}
+
+function initializeCollectionSearch() {
+  document.addEventListener("input", (event) => {
+    const search = event.target.closest?.("[data-collection-search]");
+    if (search) applyCollectionSearch(search.closest(".collection-options"));
+  });
+  document.addEventListener("keydown", (event) => {
+    const search = event.target.closest?.("[data-collection-search]");
+    if (!search) return;
+    if (event.key === "Enter") {
+      event.preventDefault();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      if (search.value) {
+        search.value = "";
+        applyCollectionSearch(search.closest(".collection-options"));
+      } else {
+        const picker = search.closest("details");
+        if (picker) picker.open = false;
+      }
+    }
+  });
 }
 
 function inputTime(value) {
@@ -145,6 +205,7 @@ function populateCollections(reset = false) {
   const database = currentDatabase();
   const collections = database?.collections || [];
   const previous = new Set(reset ? [] : selectedCollections());
+  const query = reset ? "" : collectionSearchQuery(controls.collectionOptions);
 
   controls.collectionOptions.replaceChildren();
   if (collections.length) {
@@ -156,7 +217,9 @@ function populateCollections(reset = false) {
     const selectAllText = document.createElement("span");
     selectAllText.textContent = "Select all";
     selectAllLabel.append(selectAll, selectAllText);
-    controls.collectionOptions.append(makeCollectionActions(selectAllLabel, "map"));
+    controls.collectionOptions.append(
+      makeCollectionActions(selectAllLabel, "map", "", query)
+    );
   }
   for (const collection of collections) {
     const label = document.createElement("label");
@@ -171,6 +234,7 @@ function populateCollections(reset = false) {
     label.append(checkbox, text);
     controls.collectionOptions.append(label);
   }
+  applyCollectionSearch(controls.collectionOptions);
   updateCollectionSummary();
   populateMeasurementTypes();
 }

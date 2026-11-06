@@ -244,7 +244,7 @@ controls.database.addEventListener("change", async () => {
 controls.collectionOptions.addEventListener("change", async (event) => {
   if (!event.target.matches('input[type="checkbox"]')) return;
   if (event.target.id === "collection-select-all") {
-    for (const input of collectionInputs()) {
+    for (const input of shownCollectionInputs(collectionInputs())) {
       input.checked = event.target.checked;
     }
   }
@@ -362,6 +362,7 @@ chartResizeObserver.observe(compareControls.charts);
 
 document.body.dataset.tab = activeTab;
 initializeCollectionPopout();
+initializeCollectionSearch();
 initializeDatabasePicker();
 initializeSharedViews();
 initialize();
