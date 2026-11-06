@@ -40,7 +40,7 @@ function showCachedMeasurements() {
   const showTimeSeries = controls.operator.value !== "all";
   setTimeSeriesAvailable(showTimeSeries);
   if (showTimeSeries) drawChart(lastMapPayload);
-  setMapMessage(lastMapPayload.points.length ? "" : "No mapped measurements match these filters.");
+  setMapMessage(mapPoints(lastMapPayload).count ? "" : "No mapped measurements match these filters.");
   setStatus("");
 }
 
@@ -66,6 +66,7 @@ async function loadMeasurements() {
   try {
     const payload = await getJSON("/api/measurements", params, measurementController.signal);
     if (currentRequest !== requestNumber || activeTab !== "map") return;
+    payload.request = params; // Point-detail lookups must use the same filters.
     lastMapPayload = payload;
     lastMapKey = key;
     showMeasurementPayload(payload);

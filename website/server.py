@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import hashlib
+import html as html_text
 import io
 import json
 import mimetypes
@@ -704,6 +705,10 @@ def filtered_query(
     return sql, params
 
 
+def empty_points() -> dict[str, list[object]]:
+    return {"position": [], "latitude": [], "longitude": [], "value": []}
+
+
 def nice_bucket_seconds(duration_seconds: float) -> int:
     target = max(1, duration_seconds / MAX_SERIES_POINTS)
     choices = [
@@ -713,7 +718,23 @@ def nice_bucket_seconds(duration_seconds: float) -> int:
     return next((value for value in choices if value >= target), choices[-1])
 
 
-def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
+POINT_COLUMNS = [
+    "collection_name",
+    "measured_at",
+    "latitude",
+    "longitude",
+    "technology",
+    "rat",
+    "operator_name",
+    "model",
+    "band_number",
+    "pci",
+    "ssb_index",
+    "metric_value",
+]
+
+
+def metric_scope(query: dict[str, list[str]]) -> tuple[str, list[str], str, str, list[str]]:
     database = query_value(query, "database")
     collections = query_values(query, "collection")
     category = query_value(query, "measurement") or "radio"
@@ -723,10 +744,52 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
         raise ValueError(
             "database, at least one collection, and metric are required"
         )
-
     validate_choice(category, CATEGORY_TYPES, "measurement type")
     validate_choice(metric, METRICS[category], "metric")
-    kinds = selected_kinds(category, technology)
+    return database, collections, category, metric, selected_kinds(category, technology)
+
+
+def located_points_sql(filtered: str, category: str) -> str:
+    """Mapped rows with a stable 0-based position.
+
+    Rows are ordered by time, then by a hash of every column, so a position
+    names the same measurement on every query. Rows identical in every column
+    are interchangeable, so the choice among them cannot show wrong details.
+    """
+    columns = ", ".join([*POINT_COLUMNS, *DETAIL_FIELDS[category]])
+    return f"""
+        SELECT {columns},
+            row_number() OVER (ORDER BY measured_at, hash({columns})) - 1 AS position
+        FROM ({filtered})
+        WHERE isfinite(metric_value)
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+    """
+
+
+def point_payload(query: dict[str, list[str]]) -> dict[str, object]:
+    """Every stored field of one mapped measurement, by its position."""
+    database, collections, category, metric, kinds = metric_scope(query)
+    raw = query_value(query, "position")
+    if raw is None or not raw.isdigit():
+        raise ValueError("position must be a non-negative integer")
+    with open_catalog() as con:
+        source = parquet_source(parquet_paths(con, database, collections, kinds))
+        filtered, params = filtered_query(source, query, metric)
+        row = con.execute(f"""
+            WITH located AS ({located_points_sql(filtered, category)})
+            SELECT * EXCLUDE (position)
+            FROM located
+            WHERE position = ?
+            LIMIT 1
+        """, [*params, int(raw)]).fetchone()
+    if row is None:
+        raise LookupError("That measurement is no longer in the current selection")
+    return dict(zip([*POINT_COLUMNS, *DETAIL_FIELDS[category]], row))
+
+
+def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
+    database, collections, category, metric, kinds = metric_scope(query)
 
     with open_catalog() as con:
         source = parquet_source(parquet_paths(con, database, collections, kinds))
@@ -755,53 +818,27 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
                 "label": METRICS[category][metric][0],
                 "unit": METRICS[category][metric][1],
                 "summary": {"count": 0},
-                "points": [],
+                "points": empty_points(),
                 "series": [],
             }
 
-        details = DETAIL_FIELDS[category]
-        points = con.execute(f"""
-            WITH filtered AS (
-                SELECT
-                    collection_name, measured_at, latitude, longitude,
-                    technology, rat,
-                    operator_name, model, band_number, pci, ssb_index,
-                    metric_value,
-                    {", ".join(details)}
-                FROM ({filtered})
-                WHERE isfinite(metric_value)
-                  AND latitude IS NOT NULL
-                  AND longitude IS NOT NULL
-            ),
-            ranked AS (
-                SELECT
-                    *,
-                    row_number() OVER (ORDER BY measured_at) AS row_number,
-                    count(*) OVER () AS total_rows
-                FROM filtered
-            )
-            SELECT * EXCLUDE (row_number, total_rows)
+        # Only what the map needs to draw: columns, not one object per point.
+        # Every other field is fetched for one point on click (/api/point).
+        sampled = con.execute(f"""
+            WITH located AS ({located_points_sql(filtered, category)}),
+            ranked AS (SELECT *, count(*) OVER () AS total_rows FROM located)
+            SELECT position, latitude, longitude, metric_value
             FROM ranked
-            WHERE (row_number - 1) %
-                greatest(1, ceil(total_rows / {MAX_POINTS}.0)::BIGINT) = 0
-            ORDER BY measured_at
+            WHERE position % greatest(1, ceil(total_rows / {MAX_POINTS}.0)::BIGINT) = 0
+            ORDER BY position
             LIMIT {MAX_POINTS}
         """, params).fetchall()
-        point_columns = [
-            "collection_name",
-            "measured_at",
-            "latitude",
-            "longitude",
-            "technology",
-            "rat",
-            "operator_name",
-            "model",
-            "band_number",
-            "pci",
-            "ssb_index",
-            "metric_value",
-            *details,
-        ]
+        points = empty_points()
+        for position, latitude, longitude, value in sampled:
+            points["position"].append(position)
+            points["latitude"].append(latitude)
+            points["longitude"].append(longitude)
+            points["value"].append(value)
 
         series = []
         if query_value(query, "operator"):
@@ -839,7 +876,7 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
             "start": start,
             "end": end,
         },
-        "points": [dict(zip(point_columns, row)) for row in points],
+        "points": points,
         "series": [
             {
                 "time": bucket_time,
@@ -932,14 +969,24 @@ def asset_content(path: Path) -> tuple[bytes, bytes, str]:
 
 
 def versioned_html() -> bytes:
-    html = asset_content(STATIC / "index.html")[0].decode("utf-8")
+    page = asset_content(STATIC / "index.html")[0].decode("utf-8")
 
     def version(match: re.Match) -> str:
         url = match.group(2)
         digest = asset_content(STATIC / url.lstrip("/"))[2]
         return f'{match.group(1)}{url}?v={digest}"'
 
-    return re.sub(r'((?:src|href)=")(/[^"?]+\.(?:js|css))(?:\?[^"\s]*)?"', version, html).encode()
+    page = re.sub(r'((?:src|href)=")(/[^"?]+\.(?:js|css))(?:\?[^"\s]*)?"', version, page)
+    # The basemap key travels with the page so tiles start loading at once
+    # instead of after a /api/config round trip (kept as the fallback).
+    try:
+        key = carto_basemap_key()
+    except ValueError:
+        key = ""
+    if key:
+        meta = f'  <meta name="carto-basemap-key" content="{html_text.escape(key, quote=True)}">\n</head>'
+        page = page.replace("</head>", meta, 1)
+    return page.encode()
 
 
 def accepts_gzip(value: str) -> bool:
@@ -1008,6 +1055,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return geo_options(ROOT, DB_PATH, DB_PATH.parent)
             if path == "/api/measurements":
                 return measurement_payload(query)
+            if path == "/api/point":
+                return point_payload(query)
             if path == "/api/cdf":
                 return cdf_payload(query)
             if path.startswith("/api/shared-views/"):
@@ -1121,6 +1170,15 @@ class Handler(SimpleHTTPRequestHandler):
         return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 
+def warm_caches() -> None:
+    """Pay the first-visitor costs at startup, in the background."""
+    try:
+        geo_options(ROOT, DB_PATH, DB_PATH.parent)
+        versioned_html()
+    except Exception as error:  # Never block or kill the server for a warm-up.
+        print(f"Cache warm-up skipped: {error}", file=sys.stderr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
@@ -1129,6 +1187,7 @@ def main() -> None:
 
     initialize_share_store()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    threading.Thread(target=warm_caches, name="warm-caches", daemon=True).start()
     print(f"Cellular map: http://{args.host}:{args.port}")
     try:
         server.serve_forever()

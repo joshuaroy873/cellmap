@@ -431,6 +431,7 @@ async function loadView({ resetFilters = false, selection = null } = {}) {
       return true;
     }
     lastMapKey = JSON.stringify(measurementParams());
+    payload.measurements.request = measurementParams();
     lastMapPayload = payload.measurements;
     showMeasurementPayload(payload.measurements);
     return true;

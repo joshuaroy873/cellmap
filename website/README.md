@@ -115,6 +115,7 @@ GET /api/catalog
 GET /api/options
 GET /api/view
 GET /api/measurements
+GET /api/point
 GET /api/cdf
 POST /api/compare/cdf
 POST /api/geo/search

@@ -8,7 +8,9 @@ const map = L.map("map", {
 
 async function initializeBasemap(target = map, onError = () => { $("basemap-message").hidden = false; }) {
   try {
-    const { cartoBasemapKey } = await getJSON("/api/config");
+    // The served page carries the key; the API call is only a fallback.
+    const cartoBasemapKey = document.querySelector('meta[name="carto-basemap-key"]')?.content
+      || (await getJSON("/api/config")).cartoBasemapKey;
     if (!cartoBasemapKey) {
       throw new Error("Set CARTO_BASEMAP_KEY in the repository root .env file.");
     }
@@ -51,32 +53,83 @@ function colorFor(value, minimum, maximum) {
   return `rgb(${rgb.join(",")})`;
 }
 
+// Points arrive as columns (position, latitude, longitude, value). A server
+// started before this change embeds every field per point; accept both so a
+// page refresh never breaks while the service awaits its restart.
+function mapPoints(payload) {
+  const points = payload.points;
+  if (Array.isArray(points)) {
+    return {
+      count: points.length,
+      latitude: points.map((point) => point.latitude),
+      longitude: points.map((point) => point.longitude),
+      value: points.map((point) => point.metric_value),
+      position: null,
+      embedded: points,
+    };
+  }
+  return { count: points.latitude.length, ...points, embedded: null };
+}
+
+let pointRequestNumber = 0;
+let pointController = null;
+
+async function showPointDetails(payload, points, index) {
+  const request = ++pointRequestNumber;
+  pointController?.abort();
+  if (points.embedded) {
+    renderPoint(points.embedded[index], payload);
+    return;
+  }
+  const known = {
+    metric_value: points.value[index],
+    latitude: points.latitude[index],
+    longitude: points.longitude[index],
+  };
+  renderPoint(known, payload, "Loading details");
+  pointController = new AbortController();
+  try {
+    const point = await getJSON(
+      "/api/point",
+      { ...(payload.request || measurementParams()), position: points.position[index] },
+      pointController.signal
+    );
+    if (request !== pointRequestNumber) return;
+    renderPoint(point, payload);
+  } catch (error) {
+    if (request !== pointRequestNumber || error.name === "AbortError") return;
+    renderPoint(known, payload, error.message);
+  }
+}
+
 function renderMap(payload) {
   markerLayer.clearLayers();
-  $("map-legend").hidden = !payload.points.length;
+  const points = mapPoints(payload);
+  $("map-legend").hidden = !points.count;
   $("legend-unit").textContent = payload.unit;
   const scale = colorScale(payload.summary);
   renderLegendAxis(scale);
 
-  if (!payload.points.length) {
+  if (!points.count) {
     setMapMessage("No mapped measurements match these filters.");
     return;
   }
 
   setMapMessage("");
   const bounds = [];
-  for (const point of payload.points) {
-    const color = colorFor(point.metric_value, scale.minimum, scale.maximum);
-    const marker = L.circleMarker([point.latitude, point.longitude], {
+  for (let index = 0; index < points.count; index += 1) {
+    const latitude = points.latitude[index];
+    const longitude = points.longitude[index];
+    const marker = L.circleMarker([latitude, longitude], {
       renderer: map.options.renderer,
       radius: 4,
       weight: 0,
-      fillColor: color,
+      fillColor: colorFor(points.value[index], scale.minimum, scale.maximum),
       fillOpacity: 0.82,
     });
-    marker.on("click", () => renderPoint(point, payload));
+    marker.on("click", () => showPointDetails(payload, points, index));
     marker.addTo(markerLayer);
-    bounds.push([point.latitude, point.longitude]);
+    bounds.push([latitude, longitude]);
   }
 
   const selection = [
@@ -100,7 +153,7 @@ function displayName(key) {
     .replace("Rbs", "RBs");
 }
 
-function renderPoint(point, payload) {
+function renderPoint(point, payload, note = null) {
   const preferred = [
     ["metric", `${payload.label}: ${metricValue(point.metric_value, payload.unit)}`],
     ["collection_name", point.collection_name],
@@ -140,9 +193,17 @@ function renderPoint(point, payload) {
     wrapper.append(term, detail);
     list.append(wrapper);
   }
+  if (note) {
+    const prompt = document.createElement("div");
+    prompt.className = "empty-detail panel-prompt";
+    prompt.textContent = note;
+    list.append(prompt);
+  }
 }
 
 function clearDetails() {
+  pointRequestNumber += 1;
+  pointController?.abort();
   $("point-details").innerHTML =
     '<div class="empty-detail panel-prompt">Select a point on the map</div>';
 }
