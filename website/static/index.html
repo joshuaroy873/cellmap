@@ -65,6 +65,9 @@
       <button id="tab-geo-poly" class="tab-button" type="button" data-tab="geo-poly">
         Geo-poly
       </button>
+      <button id="tab-debug" class="tab-button" type="button" data-tab="debug" hidden>
+        DL channel
+      </button>
     </nav>
 
     <main id="map-tab" class="workspace tab-panel">
@@ -156,7 +159,7 @@
 
         <article class="details-card">
           <span class="eyebrow">Selected point</span>
-          <dl id="point-details">
+          <dl id="point-details" class="point-details">
             <div class="empty-detail panel-prompt">Select a point on the map</div>
           </dl>
         </article>
@@ -222,6 +225,84 @@
           <p id="geo-explore-status" role="status"></p>
         </section>
       </aside>
+    </main>
+
+    <!-- Debug tab (temporary): visible only with ?debug=1. See debug_view.js. -->
+    <main id="debug-tab" class="workspace tab-panel" hidden>
+      <aside class="filters" aria-label="Downlink channel search">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Debug</span>
+            <h1>DL channel search</h1>
+          </div>
+        </div>
+        <label>
+          Measurement type
+          <select id="debug-measurement">
+            <option value="radio">Radio</option>
+            <option value="neighbor">Neighbour</option>
+          </select>
+        </label>
+        <label>
+          Technology
+          <select id="debug-technology">
+            <option value="LTE">LTE</option>
+            <option value="NR">NR</option>
+          </select>
+        </label>
+        <label>
+          <span id="debug-channel-label">DL EARFCN</span>
+          <input id="debug-channel" type="text" inputmode="numeric" placeholder="e.g. 8665" autocomplete="off">
+        </label>
+        <label>
+          Metric
+          <select id="debug-metric"></select>
+        </label>
+        <button id="debug-search" class="secondary-button" type="button">Search all databases</button>
+        <span class="geo-grid-note">Downlink channel number (dl_channel_number), every database and collection.</span>
+      </aside>
+
+      <section class="map-panel">
+        <div id="debug-map" aria-label="Downlink channel map"></div>
+        <div id="debug-message" class="map-message">Enter a downlink channel number and click Search</div>
+        <div id="debug-legend" class="legend" hidden>
+          <strong id="debug-legend-unit"></strong>
+          <div class="legend-scale"></div>
+          <div id="debug-legend-axis" class="legend-axis"></div>
+        </div>
+      </section>
+
+      <section class="bottom-panel">
+        <article class="debug-collections-card">
+          <div class="section-title">
+            <div>
+              <span class="eyebrow">Matches</span>
+              <h2>Collections</h2>
+            </div>
+            <span id="debug-collection-count" class="muted"></span>
+          </div>
+          <div id="debug-collections" class="debug-collections panel-prompt">No search yet</div>
+        </article>
+
+        <article class="summary-card">
+          <span class="eyebrow">Summary</span>
+          <div class="stats">
+            <div><span>Samples</span><strong id="debug-stat-count">-</strong></div>
+            <div><span>Median</span><strong id="debug-stat-median">-</strong></div>
+            <div><span>P5</span><strong id="debug-stat-p5">-</strong></div>
+            <div><span>P95</span><strong id="debug-stat-p95">-</strong></div>
+            <div><span>Minimum</span><strong id="debug-stat-minimum">-</strong></div>
+            <div><span>Maximum</span><strong id="debug-stat-maximum">-</strong></div>
+          </div>
+        </article>
+
+        <article class="details-card">
+          <span class="eyebrow">Selected point</span>
+          <dl id="debug-point-details" class="point-details">
+            <div class="empty-detail panel-prompt">Select a point on the map</div>
+          </dl>
+        </article>
+      </section>
     </main>
 
     <main id="compare-tab" class="compare-workspace tab-panel" hidden>
@@ -327,6 +408,7 @@
   <script src="/filters.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/map_view.js?v=20260917-carto-key"></script>
   <script src="/geo_view.js"></script>
+  <script src="/debug_view.js"></script>
   <script src="/compare_charts.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/compare_view.js?v=20260703-compare-toggle-style-cycle"></script>
   <script src="/share_view.js?v=20260821-shared-views"></script>

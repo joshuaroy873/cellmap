@@ -74,6 +74,8 @@ const tabControls = {
   comparePanel: $("compare-tab"),
   geoPolyButton: $("tab-geo-poly"),
   geoPolyPanel: $("geo-poly-tab"),
+  debugButton: $("tab-debug"),
+  debugPanel: $("debug-tab"),
 };
 
 const compareControls = {

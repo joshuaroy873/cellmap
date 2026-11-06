@@ -166,9 +166,11 @@ function setActiveTab(tab) {
   tabControls.mapPanel.hidden = tab !== "map";
   tabControls.comparePanel.hidden = tab !== "compare";
   tabControls.geoPolyPanel.hidden = tab !== "geo-poly";
+  tabControls.debugPanel.hidden = tab !== "debug";
   tabControls.mapButton.classList.toggle("active", tab === "map");
   tabControls.compareButton.classList.toggle("active", tab === "compare");
   tabControls.geoPolyButton.classList.toggle("active", tab === "geo-poly");
+  tabControls.debugButton.classList.toggle("active", tab === "debug");
   closeCdf();
 
   if (tab === "map") {
@@ -199,15 +201,21 @@ function setActiveTab(tab) {
           : "Select collection"
         : "Select database"
     );
-  } else {
+  } else if (tab === "geo-poly") {
     setStatus("");
     showGeoMap();
+  } else if (tab === "debug") {
+    setStatus("");
+    showDebugTab();
   }
 }
 
 tabControls.mapButton.addEventListener("click", () => setActiveTab("map"));
 tabControls.compareButton.addEventListener("click", () => setActiveTab("compare"));
 tabControls.geoPolyButton.addEventListener("click", () => setActiveTab("geo-poly"));
+tabControls.debugButton.addEventListener("click", () => setActiveTab("debug"));
+// The debug tab exists only when the page is opened with ?debug=1.
+tabControls.debugButton.hidden = !new URLSearchParams(window.location.search).has("debug");
 
 controls.database.addEventListener("change", async () => {
   invalidateMapRequests();

@@ -153,9 +153,10 @@ function displayName(key) {
     .replace("Rbs", "RBs");
 }
 
-function renderPoint(point, payload, note = null) {
+function renderPoint(point, payload, note = null, list = $("point-details")) {
   const preferred = [
     ["metric", `${payload.label}: ${metricValue(point.metric_value, payload.unit)}`],
+    ["database_name", point.database_name],
     ["collection_name", point.collection_name],
     ["measured_at", point.measured_at],
     ["technology", point.technology],
@@ -180,7 +181,6 @@ function renderPoint(point, payload, note = null) {
     ),
   ];
 
-  const list = $("point-details");
   list.replaceChildren();
   for (const [key, value] of fields) {
     if (value === null || value === undefined) continue;

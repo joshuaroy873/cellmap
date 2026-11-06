@@ -719,6 +719,7 @@ def nice_bucket_seconds(duration_seconds: float) -> int:
 
 
 POINT_COLUMNS = [
+    "database_name",
     "collection_name",
     "measured_at",
     "latitude",
@@ -767,25 +768,101 @@ def located_points_sql(filtered: str, category: str) -> str:
     """
 
 
-def point_payload(query: dict[str, list[str]]) -> dict[str, object]:
-    """Every stored field of one mapped measurement, by its position."""
-    database, collections, category, metric, kinds = metric_scope(query)
+def position_value(query: dict[str, list[str]]) -> int:
     raw = query_value(query, "position")
     if raw is None or not raw.isdigit():
         raise ValueError("position must be a non-negative integer")
-    with open_catalog() as con:
-        source = parquet_source(parquet_paths(con, database, collections, kinds))
-        filtered, params = filtered_query(source, query, metric)
-        row = con.execute(f"""
-            WITH located AS ({located_points_sql(filtered, category)})
-            SELECT * EXCLUDE (position)
-            FROM located
-            WHERE position = ?
-            LIMIT 1
-        """, [*params, int(raw)]).fetchone()
+    return int(raw)
+
+
+def located_point(
+    con: duckdb.DuckDBPyConnection,
+    filtered: str,
+    params: list[object],
+    category: str,
+    position: int,
+) -> dict[str, object]:
+    row = con.execute(f"""
+        WITH located AS ({located_points_sql(filtered, category)})
+        SELECT * EXCLUDE (position)
+        FROM located
+        WHERE position = ?
+        LIMIT 1
+    """, [*params, position]).fetchone()
     if row is None:
         raise LookupError("That measurement is no longer in the current selection")
     return dict(zip([*POINT_COLUMNS, *DETAIL_FIELDS[category]], row))
+
+
+def point_payload(query: dict[str, list[str]]) -> dict[str, object]:
+    """Every stored field of one mapped measurement, by its position."""
+    database, collections, category, metric, kinds = metric_scope(query)
+    position = position_value(query)
+    with open_catalog() as con:
+        source = parquet_source(parquet_paths(con, database, collections, kinds))
+        filtered, params = filtered_query(source, query, metric)
+        return located_point(con, filtered, params, category, position)
+
+
+def metric_summary(
+    con: duckdb.DuckDBPyConnection, filtered: str, params: list[object]
+) -> dict[str, object]:
+    row = con.execute(f"""
+        WITH filtered AS ({filtered})
+        SELECT
+            count(metric_value),
+            min(metric_value),
+            max(metric_value),
+            median(metric_value),
+            quantile_cont(metric_value, 0.05),
+            quantile_cont(metric_value, 0.95),
+            quantile_cont(metric_value, 0.01),
+            quantile_cont(metric_value, 0.99),
+            min(measured_at),
+            max(measured_at)
+        FROM filtered
+        WHERE isfinite(metric_value)
+    """, params).fetchone()
+    count, minimum, maximum, median, p5, p95, p1, p99, start, end = row
+    if not count:
+        return {"count": 0}
+    return {
+        "count": count,
+        "minimum": minimum,
+        "maximum": maximum,
+        "median": median,
+        "p5": p5,
+        "p95": p95,
+        "p1": p1,
+        "p99": p99,
+        "start": start,
+        "end": end,
+    }
+
+
+def sampled_points(
+    con: duckdb.DuckDBPyConnection, filtered: str, params: list[object], category: str
+) -> dict[str, list[object]]:
+    """Only what the map needs to draw: columns, not one object per point.
+
+    Every other field is fetched for one point on click (/api/point).
+    """
+    rows = con.execute(f"""
+        WITH located AS ({located_points_sql(filtered, category)}),
+        ranked AS (SELECT *, count(*) OVER () AS total_rows FROM located)
+        SELECT position, latitude, longitude, metric_value
+        FROM ranked
+        WHERE position % greatest(1, ceil(total_rows / {MAX_POINTS}.0)::BIGINT) = 0
+        ORDER BY position
+        LIMIT {MAX_POINTS}
+    """, params).fetchall()
+    points = empty_points()
+    for position, latitude, longitude, value in rows:
+        points["position"].append(position)
+        points["latitude"].append(latitude)
+        points["longitude"].append(longitude)
+        points["value"].append(value)
+    return points
 
 
 def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
@@ -794,55 +871,21 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
     with open_catalog() as con:
         source = parquet_source(parquet_paths(con, database, collections, kinds))
         filtered, params = filtered_query(source, query, metric)
-        summary = con.execute(f"""
-            WITH filtered AS ({filtered})
-            SELECT
-                count(metric_value),
-                min(metric_value),
-                max(metric_value),
-                median(metric_value),
-                quantile_cont(metric_value, 0.05),
-                quantile_cont(metric_value, 0.95),
-                quantile_cont(metric_value, 0.01),
-                quantile_cont(metric_value, 0.99),
-                min(measured_at),
-                max(measured_at)
-            FROM filtered
-            WHERE isfinite(metric_value)
-        """, params).fetchone()
-
-        count, minimum, maximum, median, p5, p95, p1, p99, start, end = summary
-        if not count:
+        summary = metric_summary(con, filtered, params)
+        if not summary["count"]:
             return {
                 "metric": metric,
                 "label": METRICS[category][metric][0],
                 "unit": METRICS[category][metric][1],
-                "summary": {"count": 0},
+                "summary": summary,
                 "points": empty_points(),
                 "series": [],
             }
-
-        # Only what the map needs to draw: columns, not one object per point.
-        # Every other field is fetched for one point on click (/api/point).
-        sampled = con.execute(f"""
-            WITH located AS ({located_points_sql(filtered, category)}),
-            ranked AS (SELECT *, count(*) OVER () AS total_rows FROM located)
-            SELECT position, latitude, longitude, metric_value
-            FROM ranked
-            WHERE position % greatest(1, ceil(total_rows / {MAX_POINTS}.0)::BIGINT) = 0
-            ORDER BY position
-            LIMIT {MAX_POINTS}
-        """, params).fetchall()
-        points = empty_points()
-        for position, latitude, longitude, value in sampled:
-            points["position"].append(position)
-            points["latitude"].append(latitude)
-            points["longitude"].append(longitude)
-            points["value"].append(value)
+        points = sampled_points(con, filtered, params, category)
 
         series = []
         if query_value(query, "operator"):
-            duration = max(0.0, (end - start).total_seconds())
+            duration = max(0.0, (summary["end"] - summary["start"]).total_seconds())
             bucket = nice_bucket_seconds(duration)
             series = con.execute(f"""
                 WITH filtered AS ({filtered})
@@ -864,18 +907,7 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
         "metric": metric,
         "label": METRICS[category][metric][0],
         "unit": METRICS[category][metric][1],
-        "summary": {
-            "count": count,
-            "minimum": minimum,
-            "maximum": maximum,
-            "median": median,
-            "p5": p5,
-            "p95": p95,
-            "p1": p1,
-            "p99": p99,
-            "start": start,
-            "end": end,
-        },
+        "summary": summary,
         "points": points,
         "series": [
             {
@@ -888,6 +920,93 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
             for bucket_time, avg, low, high, samples in series
         ],
     }
+
+
+# --- Debug tab (temporary): one downlink channel number across every database.
+# Remove together with website/static/debug_view.js, the debug-* block in
+# index.html, the "debug" lines in app.js, and the two routes below.
+MAX_CHANNEL_NUMBER = 3_279_165  # Highest NR-ARFCN; LTE EARFCNs stay below 65,536.
+
+
+def channel_scope(query: dict[str, list[str]]) -> tuple[str, str, int, str]:
+    category = query_value(query, "measurement") or "radio"
+    if category not in ("radio", "neighbor"):
+        raise ValueError("Channel search covers radio and neighbor measurements only")
+    technology = (query_value(query, "technology") or "").upper()
+    if technology not in ("LTE", "NR"):
+        raise ValueError("technology must be LTE or NR")
+    raw = query_value(query, "channel")
+    if raw is None or not raw.isdigit() or int(raw) > MAX_CHANNEL_NUMBER:
+        raise ValueError("channel must be a downlink EARFCN or NR-ARFCN number")
+    metric = query_value(query, "metric") or "rsrp_dbm"
+    validate_choice(metric, METRICS[category], "metric")
+    return category, technology, int(raw), metric
+
+
+def channel_filtered(
+    con: duckdb.DuckDBPyConnection, category: str, technology: str, channel: int, metric: str
+) -> tuple[str, list[object]]:
+    """All partitions of one measurement type, filtered to one DL channel number."""
+    kind = CATEGORY_TYPES[category][technology]
+    rows = con.execute(
+        "SELECT parquet_path FROM measurement_partitions WHERE measurement_type = ?"
+        " ORDER BY database_name, collection_name",
+        [kind],
+    ).fetchall()
+    paths = []
+    for (stored_path,) in rows:
+        path = (ROOT / stored_path).resolve()
+        if not path.is_relative_to(MEASUREMENTS.resolve()) or not path.exists():
+            raise FileNotFoundError(f"Cataloged Parquet file is unavailable: {stored_path}")
+        paths.append(path)
+    source = parquet_source(paths)
+    return f"SELECT *, {metric} AS metric_value FROM {source} WHERE dl_channel_number = ?", [channel]
+
+
+def channel_payload(query: dict[str, list[str]]) -> dict[str, object]:
+    category, technology, channel, metric = channel_scope(query)
+    metric_names = list(METRICS[category])
+    with open_catalog() as con:
+        filtered, params = channel_filtered(con, category, technology, channel, metric)
+        finite = ", ".join(f"count(*) FILTER (WHERE isfinite({name}))" for name in metric_names)
+        counts = con.execute(
+            f"WITH filtered AS ({filtered}) SELECT count(*), {finite} FROM filtered", params
+        ).fetchone()
+        collections = con.execute(f"""
+            WITH filtered AS ({filtered})
+            SELECT database_name, collection_name, count(*),
+                   count(*) FILTER (WHERE isfinite(metric_value)),
+                   count(*) FILTER (WHERE latitude IS NOT NULL AND longitude IS NOT NULL)
+            FROM filtered
+            GROUP BY 1, 2
+            ORDER BY 1, 2
+        """, params).fetchall()
+        summary = metric_summary(con, filtered, params)
+        points = sampled_points(con, filtered, params, category) if summary["count"] else empty_points()
+    return {
+        "measurement": category,
+        "technology": technology,
+        "channel": channel,
+        "metric": metric,
+        "label": METRICS[category][metric][0],
+        "unit": METRICS[category][metric][1],
+        "rows": counts[0],
+        "metric_counts": dict(zip(metric_names, counts[1:])),
+        "collections": [
+            {"database": database, "collection": collection, "rows": rows, "values": values, "located": located}
+            for database, collection, rows, values, located in collections
+        ],
+        "summary": summary,
+        "points": points,
+    }
+
+
+def channel_point_payload(query: dict[str, list[str]]) -> dict[str, object]:
+    category, technology, channel, metric = channel_scope(query)
+    position = position_value(query)
+    with open_catalog() as con:
+        filtered, params = channel_filtered(con, category, technology, channel, metric)
+        return located_point(con, filtered, params, category, position)
 
 
 def cdf_payload(query: dict[str, list[str]]) -> dict[str, object]:
@@ -1057,6 +1176,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return measurement_payload(query)
             if path == "/api/point":
                 return point_payload(query)
+            if path == "/api/debug/channel":
+                return channel_payload(query)
+            if path == "/api/debug/channel/point":
+                return channel_point_payload(query)
             if path == "/api/cdf":
                 return cdf_payload(query)
             if path.startswith("/api/shared-views/"):

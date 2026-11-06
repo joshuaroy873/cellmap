@@ -108,8 +108,7 @@ function colorScale(summary) {
   };
 }
 
-function renderLegendAxis(scale) {
-  const axis = $("legend-axis");
+function renderLegendAxis(scale, axis = $("legend-axis")) {
   axis.replaceChildren();
   const { minimum, maximum } = scale;
   if (minimum === null || minimum === undefined ||

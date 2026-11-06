@@ -61,6 +61,7 @@ Each tab keeps its own state in its own file and reuses only the helpers in
 | `POST /api/geo/search` | Geo-poly polygon or worldwide grid search |
 | `GET /api/geo/options` | dataset-wide operator/band combinations (cached per catalog version) |
 | `POST /api/shared-views`, `GET /api/shared-views/<id>` | create and read share links |
+| `GET /api/debug/channel`, `GET /api/debug/channel/point` | temporary debug tab: one DL channel number across all databases |
 
 Query parameters are `database`, repeated `collection`, `measurement`,
 `technology`, `operator`, `band` (`LTE:2`, `NR:78`), `pci`, `ssb`
@@ -144,6 +145,17 @@ hash. Sampling only decides which squares are shown; every square's value uses
 all of its measurements. The summary shows total matching measurements and
 shown/eligible squares. Pan and zoom never query; Reset search clears results
 and the polygon but keeps filters.
+
+## Debug tab (temporary)
+
+Opening the page with `?debug=1` adds a **DL channel** tab: measurement type
+(radio or neighbour), technology (LTE or NR), a downlink channel number
+(EARFCN or NR-ARFCN, the stored `dl_channel_number`), and a metric. Search
+scans every database and lists matching collections with row, value and GPS
+counts; the map, legend, summary and point details work as on the Map tab.
+Everything for it lives in `debug_view.js`, the `debug-*` block in
+`index.html`, a few `debug` lines in `app.js` and `state.js`, and the
+"Debug tab" section of `server.py`; delete those to remove it.
 
 The spatial extension is installed once for the server user:
 

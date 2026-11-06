@@ -386,7 +386,8 @@ label {
   grid-row: 1;
 }
 
-body[data-tab="geo-poly"] .topbar > :not(.brand) {
+body[data-tab="geo-poly"] .topbar > :not(.brand),
+body[data-tab="debug"] .topbar > :not(.brand) {
   display: none;
 }
 
@@ -779,7 +780,8 @@ h2 {
   border-radius: 10px;
 }
 
-#map {
+#map,
+#debug-map {
   width: 100%;
   height: 100%;
   background: #d9e1e5;
@@ -896,7 +898,7 @@ h2 {
 
 .chart-body,
 .stats,
-#point-details {
+.point-details {
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
@@ -968,7 +970,7 @@ h2 {
   font-size: 0.95rem;
 }
 
-#point-details {
+.point-details {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.38rem 0.8rem;
@@ -978,22 +980,22 @@ h2 {
   font-size: 0.72rem;
 }
 
-#point-details div {
+.point-details div {
   min-width: 0;
 }
 
-#point-details dt {
+.point-details dt {
   color: var(--muted);
 }
 
-#point-details dd {
+.point-details dd {
   margin: 0.1rem 0 0;
   font-weight: 700;
   overflow-wrap: anywhere;
   white-space: normal;
 }
 
-#point-details .empty-detail {
+.point-details .empty-detail {
   grid-column: 1 / -1;
   min-height: 145px;
   padding: 1rem;
@@ -1227,4 +1229,28 @@ h2 {
   .details-card {
     display: grid;
   }
+}
+
+/* Debug tab (temporary) */
+.debug-collections-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.debug-collections {
+  overflow: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.debug-collections div {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.debug-collections strong {
+  color: var(--ink);
+  font-weight: 600;
 }
