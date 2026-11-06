@@ -126,9 +126,7 @@ function renderDebugResult(payload) {
     const line = document.createElement("div");
     const name = document.createElement("strong");
     name.textContent = `${row.database} / ${row.collection}`;
-    line.append(name, document.createTextNode(
-      `: ${number(row.rows, 0)} rows, ${number(row.values, 0)} with ${payload.label}, ${number(row.located, 0)} with GPS`
-    ));
+    line.append(name, document.createTextNode(`: ${number(row.rows, 0)} rows`));
     line.title = line.textContent;
     list.append(line);
   }
