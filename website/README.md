@@ -151,8 +151,9 @@ and the polygon but keeps filters.
 Opening the page with `?debug=1` adds a **DL channel** tab: measurement type
 (radio or neighbour), technology (LTE or NR), a downlink channel number
 (EARFCN or NR-ARFCN, the stored `dl_channel_number`), and a metric. Search
-scans every database and lists matching collections with row, value and GPS
-counts; the map, legend, summary and point details work as on the Map tab.
+scans every database and lists matching collections grouped by database with
+checkboxes, as on Geo-poly; unchecking re-queries the map, summary and point
+details for the checked ones only, and a new search resets the selection.
 Everything for it lives in `debug_view.js`, the `debug-*` block in
 `index.html`, a few `debug` lines in `app.js` and `state.js`, and the
 "Debug tab" section of `server.py`; delete those to remove it.

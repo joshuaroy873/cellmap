@@ -13,6 +13,12 @@ let debugController;
 let debugPayload;
 let debugPointRequest = 0;
 let debugPointController;
+// Unchecked [database, collection] pairs, as JSON keys; kept across metric
+// changes and checkbox edits, cleared by a new search.
+const debugExcluded = new Set();
+let debugGroupSignature = "";
+let debugSelectionTimer;
+const debugKey = (database, collection) => JSON.stringify([database, collection]);
 
 const debugControls = {
   measurement: $("debug-measurement"),
@@ -62,6 +68,7 @@ function debugParams() {
     technology: debugControls.technology.value,
     channel: debugControls.channel.value.trim(),
     metric: debugControls.metric.value,
+    excluded: debugExcluded.size ? JSON.stringify([...debugExcluded].map((key) => JSON.parse(key))) : "",
   };
 }
 
@@ -72,7 +79,12 @@ function clearDebugDetails() {
     '<div class="empty-detail panel-prompt">Select a point on the map</div>';
 }
 
-async function runDebugSearch() {
+async function runDebugSearch(keepSelection = false) {
+  clearTimeout(debugSelectionTimer);
+  if (!keepSelection) {
+    debugExcluded.clear();
+    debugGroupSignature = "";
+  }
   const params = debugParams();
   if (!/^\d+$/.test(params.channel)) {
     setStatus("Enter the downlink channel number as digits");
@@ -113,23 +125,18 @@ function renderDebugResult(payload) {
     stat(key, summary.count ? metricValue(summary[key], payload.unit) : "-");
   }
 
-  const list = $("debug-collections");
-  list.replaceChildren();
-  list.classList.toggle("panel-prompt", !payload.collections.length);
+  const selectedCount = payload.collections.filter(
+    (row) => !debugExcluded.has(debugKey(row.database, row.collection))
+  ).length;
   $("debug-collection-count").textContent = payload.rows
-    ? `${number(payload.rows, 0)} rows in ${payload.collections.length} collection${payload.collections.length === 1 ? "" : "s"}`
+    ? `${number(payload.selected_rows, 0)} of ${number(payload.rows, 0)} rows · ${selectedCount} of ${payload.collections.length} collections`
     : "";
-  if (!payload.collections.length) {
-    list.textContent = "No matches";
+  const signature = JSON.stringify(payload.collections.map((row) => [row.database, row.collection, row.rows]));
+  if (signature !== debugGroupSignature) {
+    renderDebugGroups(payload.collections);
+    debugGroupSignature = signature;
   }
-  for (const row of payload.collections) {
-    const line = document.createElement("div");
-    const name = document.createElement("strong");
-    name.textContent = `${row.database} / ${row.collection}`;
-    line.append(name, document.createTextNode(`: ${number(row.rows, 0)} rows`));
-    line.title = line.textContent;
-    list.append(line);
-  }
+  updateDebugSelectAll(payload.collections);
 
   const points = mapPoints(payload);
   const where = `${payload.technology} ${payload.measurement === "radio" ? "radio" : "neighbour"} on DL channel ${payload.channel}`;
@@ -162,6 +169,88 @@ function renderDebugResult(payload) {
   debugMap.fitBounds(bounds, { padding: [24, 24], maxZoom: 16 });
 }
 
+function scheduleDebugSelection() {
+  if (!debugPayload) return;
+  updateDebugSelectAll(debugPayload.collections);
+  clearTimeout(debugSelectionTimer);
+  setStatus("Updating selection…");
+  debugSelectionTimer = setTimeout(() => runDebugSearch(true), 300);
+}
+
+function updateDebugSelectAll(collections) {
+  const checkbox = $("debug-select-all");
+  const selected = collections.filter((row) => !debugExcluded.has(debugKey(row.database, row.collection))).length;
+  checkbox.disabled = collections.length === 0;
+  checkbox.checked = collections.length > 0 && selected === collections.length;
+  checkbox.indeterminate = selected > 0 && selected < collections.length;
+}
+
+// Same layout as the Geo-poly results pane: one collapsed group per database
+// with a tri-state database checkbox, collections beneath.
+function renderDebugGroups(collections) {
+  const list = $("debug-collections");
+  const opened = new Set([...list.querySelectorAll("details[open]")].map((item) => item.dataset.database));
+  list.replaceChildren();
+  list.classList.toggle("panel-prompt", !collections.length);
+  if (!collections.length) {
+    list.textContent = "No matches";
+    return;
+  }
+  const groups = new Map();
+  for (const row of collections) {
+    if (!groups.has(row.database)) groups.set(row.database, []);
+    groups.get(row.database).push(row);
+  }
+  const fragment = document.createDocumentFragment();
+  for (const [database, rows] of groups) {
+    const details = document.createElement("details");
+    details.dataset.database = database;
+    details.open = opened.has(database);
+    const summary = document.createElement("summary");
+    const label = document.createElement("label");
+    const dbInput = document.createElement("input");
+    dbInput.type = "checkbox";
+    const rowTotal = rows.reduce((total, row) => total + row.rows, 0);
+    label.append(dbInput, document.createTextNode(`${database} (${rows.length}; ${number(rowTotal, 0)} rows)`));
+    label.addEventListener("click", (event) => event.stopPropagation());
+    summary.append(label);
+    details.append(summary);
+    const inputs = [];
+    const syncDatabase = () => {
+      const checked = inputs.filter(([input]) => input.checked).length;
+      dbInput.checked = checked === inputs.length;
+      dbInput.indeterminate = checked > 0 && checked < inputs.length;
+    };
+    for (const row of rows) {
+      const item = document.createElement("label");
+      item.className = "debug-collection";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      const key = debugKey(database, row.collection);
+      input.checked = !debugExcluded.has(key);
+      inputs.push([input, key]);
+      item.append(input, document.createTextNode(`${row.collection}: ${number(row.rows, 0)} rows`));
+      input.addEventListener("change", () => {
+        if (input.checked) debugExcluded.delete(key); else debugExcluded.add(key);
+        syncDatabase();
+        scheduleDebugSelection();
+      });
+      details.append(item);
+    }
+    syncDatabase();
+    dbInput.addEventListener("change", () => {
+      dbInput.indeterminate = false;
+      for (const [input, key] of inputs) {
+        input.checked = dbInput.checked;
+        if (dbInput.checked) debugExcluded.delete(key); else debugExcluded.add(key);
+      }
+      scheduleDebugSelection();
+    });
+    fragment.append(details);
+  }
+  list.append(fragment);
+}
+
 async function showDebugPointDetails(payload, points, index) {
   const request = ++debugPointRequest;
   debugPointController?.abort();
@@ -187,13 +276,23 @@ async function showDebugPointDetails(payload, points, index) {
   }
 }
 
-debugControls.search.addEventListener("click", runDebugSearch);
+debugControls.search.addEventListener("click", () => runDebugSearch());
 debugControls.channel.addEventListener("keydown", (event) => {
   if (event.key === "Enter") runDebugSearch();
 });
 for (const name of ["measurement", "technology", "metric"]) {
   debugControls[name].addEventListener("change", () => {
     if (name !== "metric") refreshDebugControls();
-    if (debugControls.channel.value.trim()) runDebugSearch();
+    // A metric change keeps the collection selection; a new scope resets it.
+    if (debugControls.channel.value.trim()) runDebugSearch(name === "metric");
   });
 }
+$("debug-select-all").addEventListener("change", (event) => {
+  if (!debugPayload) return;
+  debugExcluded.clear();
+  if (!event.target.checked) {
+    for (const row of debugPayload.collections) debugExcluded.add(debugKey(row.database, row.collection));
+  }
+  renderDebugGroups(debugPayload.collections);
+  scheduleDebugSelection();
+});

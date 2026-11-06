@@ -1234,8 +1234,8 @@ h2 {
 /* Debug tab (temporary) */
 .debug-collections-card {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 0.5rem;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 0.4rem;
 }
 
 .debug-collections {
@@ -1244,13 +1244,29 @@ h2 {
   line-height: 1.5;
 }
 
-.debug-collections div {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.debug-select-all,
+.debug-collections label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  overflow-wrap: anywhere;
+  color: inherit;
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
 }
 
-.debug-collections strong {
-  color: var(--ink);
-  font-weight: 600;
+.debug-collections details { padding: 0.15rem 0; }
+.debug-collections summary { display: list-item; cursor: pointer; }
+.debug-collections .debug-collection { display: flex; margin: 0.25rem 0 0.25rem 1.5rem; }
+.debug-select-all input,
+.debug-collections input[type="checkbox"] {
+  appearance: auto;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
 }

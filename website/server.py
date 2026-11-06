@@ -928,6 +928,24 @@ def measurement_payload(query: dict[str, list[str]]) -> dict[str, object]:
 MAX_CHANNEL_NUMBER = 3_279_165  # Highest NR-ARFCN; LTE EARFCNs stay below 65,536.
 
 
+def excluded_pairs(query: dict[str, list[str]]) -> list[tuple[str, str]]:
+    """Optional JSON list of [database, collection] pairs to leave out."""
+    raw = query_value(query, "excluded")
+    if raw is None:
+        return []
+    try:
+        pairs = json.loads(raw)
+    except json.JSONDecodeError:
+        raise ValueError("excluded must be a JSON list of [database, collection] pairs") from None
+    if not isinstance(pairs, list) or len(pairs) > 10_000 or any(
+        not isinstance(pair, list) or len(pair) != 2
+        or any(not isinstance(value, str) or len(value) > 512 for value in pair)
+        for pair in pairs
+    ):
+        raise ValueError("excluded must be a JSON list of [database, collection] pairs")
+    return sorted({tuple(pair) for pair in pairs})
+
+
 def channel_scope(query: dict[str, list[str]]) -> tuple[str, str, int, str]:
     category = query_value(query, "measurement") or "radio"
     if category not in ("radio", "neighbor"):
@@ -963,24 +981,40 @@ def channel_filtered(
     return f"SELECT *, {metric} AS metric_value FROM {source} WHERE dl_channel_number = ?", [channel]
 
 
+def without_collections(
+    filtered: str, params: list[object], excluded: list[tuple[str, str]]
+) -> tuple[str, list[object]]:
+    if not excluded:
+        return filtered, params
+    clause = " OR ".join("(database_name = ? AND collection_name = ?)" for _ in excluded)
+    return (
+        f"SELECT * FROM ({filtered}) WHERE NOT ({clause})",
+        [*params, *(value for pair in excluded for value in pair)],
+    )
+
+
 def channel_payload(query: dict[str, list[str]]) -> dict[str, object]:
     category, technology, channel, metric = channel_scope(query)
+    excluded = excluded_pairs(query)
     metric_names = list(METRICS[category])
     with open_catalog() as con:
-        filtered, params = channel_filtered(con, category, technology, channel, metric)
-        finite = ", ".join(f"count(*) FILTER (WHERE isfinite({name}))" for name in metric_names)
-        counts = con.execute(
-            f"WITH filtered AS ({filtered}) SELECT count(*), {finite} FROM filtered", params
-        ).fetchone()
+        # The collection list covers every match so unchecked ones stay
+        # listed; counts, summary and points cover the checked ones only.
+        matched, matched_params = channel_filtered(con, category, technology, channel, metric)
         collections = con.execute(f"""
-            WITH filtered AS ({filtered})
+            WITH filtered AS ({matched})
             SELECT database_name, collection_name, count(*),
                    count(*) FILTER (WHERE isfinite(metric_value)),
                    count(*) FILTER (WHERE latitude IS NOT NULL AND longitude IS NOT NULL)
             FROM filtered
             GROUP BY 1, 2
             ORDER BY 1, 2
-        """, params).fetchall()
+        """, matched_params).fetchall()
+        filtered, params = without_collections(matched, matched_params, excluded)
+        finite = ", ".join(f"count(*) FILTER (WHERE isfinite({name}))" for name in metric_names)
+        counts = con.execute(
+            f"WITH filtered AS ({filtered}) SELECT count(*), {finite} FROM filtered", params
+        ).fetchone()
         summary = metric_summary(con, filtered, params)
         points = sampled_points(con, filtered, params, category) if summary["count"] else empty_points()
     return {
@@ -990,7 +1024,9 @@ def channel_payload(query: dict[str, list[str]]) -> dict[str, object]:
         "metric": metric,
         "label": METRICS[category][metric][0],
         "unit": METRICS[category][metric][1],
-        "rows": counts[0],
+        "rows": sum(row[2] for row in collections),
+        "selected_rows": counts[0],
+        "excluded": [list(pair) for pair in excluded],
         "metric_counts": dict(zip(metric_names, counts[1:])),
         "collections": [
             {"database": database, "collection": collection, "rows": rows, "values": values, "located": located}
@@ -1005,7 +1041,9 @@ def channel_point_payload(query: dict[str, list[str]]) -> dict[str, object]:
     category, technology, channel, metric = channel_scope(query)
     position = position_value(query)
     with open_catalog() as con:
-        filtered, params = channel_filtered(con, category, technology, channel, metric)
+        filtered, params = without_collections(
+            *channel_filtered(con, category, technology, channel, metric), excluded_pairs(query)
+        )
         return located_point(con, filtered, params, category, position)
 
 
