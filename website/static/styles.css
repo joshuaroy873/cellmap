@@ -264,6 +264,11 @@ label {
   white-space: nowrap;
 }
 
+.collection-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .collection-option input {
   width: auto;
   min-height: 0;
