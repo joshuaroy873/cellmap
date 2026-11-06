@@ -611,9 +611,37 @@ class ImportTests(unittest.TestCase):
             incoming.write_bytes(self.csv().read_bytes())
             inputs, _ = importer.discover_inputs([Path(folder)])
             self.assertEqual(inputs, [(incoming, "lte_pdsch")])
+            for stem, kind in [("LTE Radio Neighbor - Limited", "lte_radio_neighbor"),
+                               ("NR Radio [connected] - Limited", "nr_radio"),
+                               ("NR Radio Beam", "nr_radio_neighbor"),
+                               ("LTE PUSCH [per-carrier] - Limited", "lte_pusch")]:
+                self.assertEqual(importer.csv_kind(stem), kind)
             importer.build_dataset(self.stage, inputs, rebuild=False)
             self.assertEqual(importer.validate_dataset(self.stage)["rows"], 1)
             self.assertTrue(incoming.exists())
+
+    def test_limited_exports_optional_modulation_and_mcs_alias(self):
+        def rewrite(path, rename=None, drop=None):
+            with path.open(newline="") as stream:
+                rows = list(csv.DictReader(stream))
+            fields = [rename.get(f, f) if rename else f for f in rows[0] if f != drop]
+            with path.open("w", newline="") as stream:
+                writer = csv.DictWriter(stream, fieldnames=fields)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({(rename or {}).get(k, k): v for k, v in row.items() if k != drop})
+        pusch = self.csv(kind="lte_pusch", rows=[{"direction": "Uplink"}])
+        rewrite(pusch, drop="pusch_modulation")
+        pdsch = self.csv(kind="lte_pdsch", rows=[{"pdsch_modulation": "64QAM"}])
+        rewrite(pdsch, rename={"pdsch_modulation": "Modulation (Based on MCS)"})
+        importer.build_dataset(self.stage, [(pusch, "lte_pusch"), (pdsch, "lte_pdsch")])
+        with duckdb.connect() as con:
+            for kind, expected in [("lte_pusch", None), ("lte_pdsch", "64QAM")]:
+                path = self.stage / "measurements" / kind / "database=example" / "collection=sample" / "data.parquet"
+                self.assertEqual(con.execute("SELECT modulation FROM read_parquet(?)", [str(path)]).fetchall(), [(expected,)])
+        with self.assertRaisesRegex(ValueError, "missing canonical columns: throughput_mbps"):
+            rewrite(pusch, drop="lte_net_pusch_throughput")
+            importer.build_dataset(self.stage, [(pusch, "lte_pusch")])
 
     def test_normal_import_cli_without_extra_flags(self):
         self.csv()

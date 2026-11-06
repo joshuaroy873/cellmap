@@ -39,7 +39,9 @@ nr_pdsch.csv         NR PDSCH [per-carrier].csv
 nr_pusch.csv         NR PUSCH [per-carrier].csv
 ```
 
-An unrecognised CSV name stops the import rather than silently skipping data.
+SmartAnalytics backups name the reduced tables `<name> - Limited.csv`; the
+suffix is accepted. An unrecognised CSV name stops the import rather than
+silently skipping data.
 
 ## Import versus rebuild
 
@@ -115,7 +117,9 @@ pusch           technology, rat, band_number, pci, ssb_index, ul_channel_number,
 
 LTE rows store `ssb_index` as NULL and SCS as 15 kHz; LTE neighbours also
 store `is_serving_beam` and `sinr_db` as NULL. NR rows store `rssi_dbm` as
-NULL. Throughput is converted from kbps to Mbps.
+NULL. Throughput is converted from kbps to Mbps. `modulation` is optional:
+Limited LTE PDSCH exports supply it as `Modulation (Based on MCS)`, Limited LTE
+PUSCH exports omit it and store NULL.
 
 ## Normalisation and filters
 

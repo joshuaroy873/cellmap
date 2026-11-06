@@ -32,6 +32,7 @@ from cellmap_schema import (  # noqa: E402
     DERIVED_COLUMNS,
     FILE_TYPES,
     MEASUREMENT_SCHEMAS,
+    OPTIONAL_COLUMNS,
     ROW_FILTERS,
     SCHEMA_VERSION,
 )
@@ -46,7 +47,8 @@ OUTPUT = ACTIVE / "measurements"
 DEFAULT_SERVICES = ["cellmap-server-8000.service", "cellmap-repo-preview-8001.service"]
 CSV_NAME_ALIASES = {
     "ltepdschpercarrier": "lte_pdsch", "ltepuschpercarrier": "lte_pusch",
-    "lteradioneig": "lte_radio_neighbor", "lteradioconnected": "lte_radio",
+    "lteradioneig": "lte_radio_neighbor", "lteradioneighbor": "lte_radio_neighbor",
+    "lteradioconnected": "lte_radio",
     "nrpdschpercarrier": "nr_pdsch", "nrpuschpercarrier": "nr_pusch",
     "nrradiobeam": "nr_radio_neighbor", "nrradioconnected": "nr_radio",
 }
@@ -138,6 +140,18 @@ def sql_name(value: str) -> str:
 
 def token(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def csv_kind(stem: str) -> str | None:
+    """Map a canonical or QualiPoc/SmartAnalytics export name to a measurement type.
+
+    SmartAnalytics exports the reduced-column tables as "<name> - Limited";
+    the suffix does not change which measurement type the file holds.
+    """
+    name = token(stem)
+    return FILE_TYPES.get(stem.lower()) or CSV_NAME_ALIASES.get(name) or CSV_NAME_ALIASES.get(
+        re.sub(r"limited$", "", name)
+    )
 
 
 def display_path(path: Path) -> str:
@@ -406,7 +420,10 @@ def canonical_select(
             None,
         )
         if source_name is None:
-            missing.append(f"{name} ({' / '.join(aliases)})")
+            if name in OPTIONAL_COLUMNS:
+                expressions.append(f"cast(NULL AS {data_type}) AS {sql_name(name)}")
+            else:
+                missing.append(f"{name} ({' / '.join(aliases)})")
             continue
         column = sql_name(source_name)
         if data_type == "VARCHAR":
@@ -657,7 +674,7 @@ def discover_inputs(
     latest = {}
     superseded = []
     for path in sorted(candidates):
-        kind = FILE_TYPES.get(path.stem.lower()) or CSV_NAME_ALIASES.get(token(path.stem))
+        kind = csv_kind(path.stem)
         if path.suffix.lower() != ".csv" or kind is None:
             raise ValueError(f"Unknown CSV filename (not silently skipped): {path}")
         database = archived_database(path)

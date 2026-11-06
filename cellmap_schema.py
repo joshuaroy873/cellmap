@@ -135,7 +135,7 @@ MEASUREMENT_SCHEMAS = {
         ("avg_pdsch_layers", "DOUBLE", ["avg_pdsch_layers"]),
         ("pdsch_rbs", "DOUBLE", ["pdsch_rbs"]),
         ("bler", "DOUBLE", ["bler"]),
-        ("modulation", "VARCHAR", ["pdsch_modulation"]),
+        ("modulation", "VARCHAR", ["pdsch_modulation", "modulation_based_on_mcs"]),
     ],
     "lte_pusch": [
         ("technology", "VARCHAR", []),
@@ -224,6 +224,10 @@ MEASUREMENT_SCHEMAS = {
         ("modulation", "VARCHAR", ["pusch_modulation"]),
     ],
 }
+
+# Columns an export may omit; they are stored as NULL instead of failing the
+# import. SmartAnalytics "Limited" LTE PUSCH tables carry no modulation name.
+OPTIONAL_COLUMNS = {"modulation"}
 
 DERIVED_COLUMNS = {
     "lte_radio": {
